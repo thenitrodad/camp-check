@@ -23,13 +23,17 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install additional Android build tools
+        run: |
+          sdkmanager "build-tools;35.0.0" "platforms;android-35" "ndk;26.1.10909125"
+
       - name: Install dependencies
         run: npm install --legacy-peer-deps --registry https://registry.npmjs.org
 
       - name: Build AAB
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: npx eas-cli@latest build --platform android --profile production --local --non-interactive --output ./build.aab
+        run: npx eas-cli@14 build --platform android --profile production --local --non-interactive --output ./build.aab
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
