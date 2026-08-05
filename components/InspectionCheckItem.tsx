@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import {
-  Alert, Image, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import { uploadInspectionPhoto } from '@/lib/uploadPhoto';
 import type { ChecklistItem } from '@/types';
 
 interface Props {
@@ -20,9 +21,10 @@ interface Props {
 export default function InspectionCheckItem({ item, onToggle, onSkip, onPhotoCapture, onPhotoDelete, onNotesChange }: Props) {
   const colors = useColors();
   const [showNotes, setShowNotes] = useState(!!item.notes);
+  const [uploading, setUploading] = useState(false);
 
   const handleToggle = () => {
-    if (item.skipped) return; // can't check a skipped item
+    if (item.skipped) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onToggle();
   };
@@ -39,7 +41,22 @@ export default function InspectionCheckItem({ item, onToggle, onSkip, onPhotoCap
       allowsEditing: false,
     });
     if (!result.canceled && result.assets[0]) {
-      onPhotoCapture(result.assets[0].uri);
+      const localUri = result.assets[0].uri;
+      // Optimistically show the local photo immediately
+      onPhotoCapture(localUri);
+
+      // Upload to cloud in background
+      setUploading(true);
+      try {
+        const cloudUrl = await uploadInspectionPhoto(localUri);
+        if (cloudUrl) {
+          // Replace local URI with permanent cloud URL
+          onPhotoCapture(cloudUrl);
+        }
+        // If upload failed, keep the local URI — photo still visible on this device
+      } finally {
+        setUploading(false);
+      }
     }
   };
 
@@ -100,12 +117,15 @@ export default function InspectionCheckItem({ item, onToggle, onSkip, onPhotoCap
                   color={showNotes ? colors.primary : colors.mutedForeground}
                 />
               </Pressable>
-              <Pressable onPress={handlePhoto} style={styles.actionBtn}>
-                <Ionicons
-                  name={item.photoUri ? 'camera' : 'camera-outline'}
-                  size={18}
-                  color={item.photoUri ? colors.accent : colors.mutedForeground}
-                />
+              <Pressable onPress={handlePhoto} style={styles.actionBtn} disabled={uploading}>
+                {uploading
+                  ? <ActivityIndicator size="small" color={colors.accent} />
+                  : <Ionicons
+                      name={item.photoUri ? 'camera' : 'camera-outline'}
+                      size={18}
+                      color={item.photoUri ? colors.accent : colors.mutedForeground}
+                    />
+                }
               </Pressable>
             </>
           )}
@@ -124,9 +144,17 @@ export default function InspectionCheckItem({ item, onToggle, onSkip, onPhotoCap
       {item.photoUri && !isSkipped && (
         <View style={styles.photoWrap}>
           <Image source={{ uri: item.photoUri }} style={styles.photo} />
-          <Pressable onPress={handleDeletePhoto} style={[styles.deletePhotoBtn, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
-            <Ionicons name="trash-outline" size={16} color="#fff" />
-          </Pressable>
+          {uploading && (
+            <View style={[styles.uploadOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={styles.uploadText}>Saving to cloud…</Text>
+            </View>
+          )}
+          {!uploading && (
+            <Pressable onPress={handleDeletePhoto} style={[styles.deletePhotoBtn, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
+              <Ionicons name="trash-outline" size={16} color="#fff" />
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -180,6 +208,20 @@ const styles = StyleSheet.create({
     height: 160,
     borderRadius: 10,
     marginTop: 4,
+  },
+  uploadOverlay: {
+    position: 'absolute',
+    inset: 0,
+    top: 4,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  uploadText: {
+    color: '#fff',
+    fontSize: 13,
+    fontFamily: 'Inter_500Medium',
   },
   deletePhotoBtn: {
     position: 'absolute',
