@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Booking, BookingPhoto, Inspection, InspectionSection, InventoryItem, ItemStatus } from '@/types';
+import { pushToCloud, pullFromCloud } from '@/lib/supabase';
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 function isoFromNow(offsetDays: number): string {
@@ -169,30 +170,69 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
   const [bookings, setBookings] = useState<Booking[]>(() => makeSampleBookings());
   const [inspections, setInspections] = useState<Record<string, Inspection>>({});
   const [inventory, setInventory] = useState<Record<string, InventoryItem[]>>({});
+  const syncTimer = useRef<ReturnType<typeof setTimeout>>();
+  const initialized = useRef(false);
 
+  // ── Load local then merge from cloud ────────────────────────────────────────
   useEffect(() => {
     (async () => {
+      // 1. Load from AsyncStorage first (instant)
       const [rawB, rawI, rawInv] = await Promise.all([
         AsyncStorage.getItem('campcheck_bookings'),
         AsyncStorage.getItem('campcheck_inspections'),
         AsyncStorage.getItem('campcheck_inventory'),
       ]);
+      let localBookings: Booking[] | null = null;
+      let localInspections: Record<string, Inspection> = {};
+      let localInventory: Record<string, InventoryItem[]> = {};
+
       if (rawB) {
         const saved: Booking[] = JSON.parse(rawB);
-        if (isStale(saved)) {
-          const fresh = makeSampleBookings();
-          setBookings(fresh);
-          AsyncStorage.setItem('campcheck_bookings', JSON.stringify(fresh));
-          AsyncStorage.removeItem('campcheck_inspections');
-          AsyncStorage.removeItem('campcheck_inventory');
-        } else {
-          setBookings(saved);
-          if (rawI) setInspections(JSON.parse(rawI));
-          if (rawInv) setInventory(JSON.parse(rawInv));
+        if (!isStale(saved)) {
+          localBookings = saved;
+          if (rawI) localInspections = JSON.parse(rawI);
+          if (rawInv) localInventory = JSON.parse(rawInv);
         }
       }
+
+      // 2. Pull from cloud and prefer it if it has real data
+      const remote = await pullFromCloud();
+      if (remote && remote.bookings?.length > 0 && !isStale(remote.bookings)) {
+        // Cloud has real, fresh data — use it
+        setBookings(remote.bookings);
+        setInspections(remote.inspections ?? {});
+        setInventory(remote.inventory ?? {});
+        await Promise.all([
+          AsyncStorage.setItem('campcheck_bookings', JSON.stringify(remote.bookings)),
+          AsyncStorage.setItem('campcheck_inspections', JSON.stringify(remote.inspections ?? {})),
+          AsyncStorage.setItem('campcheck_inventory', JSON.stringify(remote.inventory ?? {})),
+        ]);
+      } else if (localBookings) {
+        // No cloud data yet — use local
+        setBookings(localBookings);
+        setInspections(localInspections);
+        setInventory(localInventory);
+      }
+      // else: keep sample data that was set on init
+
+      initialized.current = true;
     })();
   }, []);
+
+  // ── Debounced cloud sync on any state change ─────────────────────────────────
+  useEffect(() => {
+    if (!initialized.current) return;
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => {
+      pushToCloud({
+        bookings,
+        inspections,
+        inventory,
+        updatedAt: new Date().toISOString(),
+      });
+    }, 1500);
+    return () => clearTimeout(syncTimer.current);
+  }, [bookings, inspections, inventory]);
 
   const saveBookings = useCallback((next: Booking[]) => {
     setBookings(next);
