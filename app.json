@@ -2,7 +2,7 @@
   "expo": {
     "name": "CampCheck",
     "slug": "camp-check",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon-new.png",
     "scheme": "camp-check",
@@ -14,10 +14,12 @@
       "backgroundColor": "#1E3A5F"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "buildNumber": "17"
     },
     "android": {
       "package": "com.campcheck.app",
+      "versionCode": 17,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon-new.png",
         "backgroundColor": "#FFFFFF"
