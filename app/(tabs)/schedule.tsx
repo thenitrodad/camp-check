@@ -18,8 +18,12 @@ import { useBookings } from '@/context/BookingsContext';
 import { InspectionPill } from '@/components/StatusPill';
 import EmptyState from '@/components/EmptyState';
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAYS_LETTER = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function addDays(base: Date, n: number) {
   const d = new Date(base);
@@ -31,25 +35,69 @@ function toIso(d: Date) {
   return d.toISOString().split('T')[0];
 }
 
+// Build the grid for a full month (always 6 rows × 7 cols)
+function buildMonthGrid(year: number, month: number): (Date | null)[][] {
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startOffset = firstDay.getDay(); // 0=Sun
+
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= lastDay.getDate(); d++) cells.push(new Date(year, month, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const rows: (Date | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+  return rows;
+}
+
+type ViewMode = 'week' | 'month';
+
 export default function ScheduleScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { bookings } = useBookings();
 
-  // Always start from today
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const [selectedDate, setSelectedDate] = useState(toIso(today));
   const [weekOffset, setWeekOffset] = useState(0);
+  const [viewMode, setViewMode] = useState<ViewMode>('week');
+  const [monthOffset, setMonthOffset] = useState(0);
 
+  // Week view
   const weekStart = addDays(today, weekOffset * 7);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  // Month view
+  const monthDate = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+  const monthYear = monthDate.getFullYear();
+  const monthIdx = monthDate.getMonth();
+  const monthGrid = buildMonthGrid(monthYear, monthIdx);
 
   const dayBookings = bookings.filter(b => b.checkIn === selectedDate);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
-  const hasBooking = (dateIso: string) => bookings.some(b => b.checkIn === dateIso);
+  const hasBooking = (dateIso: string) => bookings.some(b =>
+    b.checkIn <= dateIso && b.checkOut >= dateIso
+  );
+
+  const selectDate = (iso: string) => {
+    Haptics.selectionAsync();
+    setSelectedDate(iso);
+  };
+
+  const switchMode = (mode: ViewMode) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setViewMode(mode);
+    // Sync month offset when switching to month view
+    if (mode === 'month') {
+      const sel = new Date(selectedDate + 'T00:00:00');
+      const diffMonths = (sel.getFullYear() - today.getFullYear()) * 12 + (sel.getMonth() - today.getMonth());
+      setMonthOffset(diffMonths);
+    }
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -62,64 +110,143 @@ export default function ScheduleScreen() {
           <View>
             <Text style={styles.headerTitle}>Schedule</Text>
             <Text style={styles.headerSub}>
-              {MONTHS[weekStart.getMonth()]} {weekStart.getFullYear()}
+              {viewMode === 'week'
+                ? `${MONTHS_SHORT[weekStart.getMonth()]} ${weekStart.getFullYear()}`
+                : `${MONTHS[monthIdx]} ${monthYear}`
+              }
             </Text>
           </View>
-          <Pressable
-            onPress={() => { Haptics.selectionAsync(); router.push('/booking/form'); }}
-            style={[styles.newBtn, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
-          >
-            <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.newBtnText}>New Booking</Text>
-          </Pressable>
-        </View>
-
-        {/* Week Navigator */}
-        <View style={styles.weekNav}>
-          <Pressable
-            onPress={() => { Haptics.selectionAsync(); setWeekOffset(w => w - 1); }}
-            style={styles.weekNavBtn}
-          >
-            <Ionicons name="chevron-back" size={20} color="#fff" />
-          </Pressable>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.calStrip}>
-            {weekDays.map(d => {
-              const iso = toIso(d);
-              const isSelected = iso === selectedDate;
-              const isToday = iso === toIso(today);
-              const hasBkg = hasBooking(iso);
-              return (
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            {/* Week / Month toggle */}
+            <View style={[styles.toggleWrap, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
+              {(['week', 'month'] as ViewMode[]).map(m => (
                 <Pressable
-                  key={iso}
-                  onPress={() => { Haptics.selectionAsync(); setSelectedDate(iso); }}
+                  key={m}
+                  onPress={() => switchMode(m)}
                   style={[
-                    styles.dayCell,
-                    isSelected && { backgroundColor: colors.accent },
-                    !isSelected && isToday && { backgroundColor: 'rgba(255,255,255,0.1)' },
+                    styles.toggleBtn,
+                    viewMode === m && { backgroundColor: 'rgba(255,255,255,0.25)' },
                   ]}
                 >
-                  <Text style={[styles.dayName, { color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)' }]}>
-                    {DAYS[d.getDay()]}
+                  <Text style={[
+                    styles.toggleText,
+                    { color: viewMode === m ? '#fff' : 'rgba(255,255,255,0.6)' },
+                    viewMode === m && { fontFamily: 'Inter_600SemiBold' },
+                  ]}>
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
                   </Text>
-                  <Text style={[styles.dayNum, { color: isSelected ? '#fff' : 'rgba(255,255,255,0.9)' }]}>
-                    {d.getDate()}
-                  </Text>
-                  {hasBkg && (
-                    <View style={[styles.dot, { backgroundColor: isSelected ? '#fff' : colors.accent }]} />
-                  )}
                 </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <Pressable
-            onPress={() => { Haptics.selectionAsync(); setWeekOffset(w => w + 1); }}
-            style={styles.weekNavBtn}
-          >
-            <Ionicons name="chevron-forward" size={20} color="#fff" />
-          </Pressable>
+              ))}
+            </View>
+            <Pressable
+              onPress={() => { Haptics.selectionAsync(); router.push('/booking/form'); }}
+              style={[styles.newBtn, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
+            >
+              <Ionicons name="add" size={20} color="#fff" />
+            </Pressable>
+          </View>
         </View>
+
+        {/* ── Week view strip ── */}
+        {viewMode === 'week' && (
+          <View style={styles.weekNav}>
+            <Pressable
+              onPress={() => { Haptics.selectionAsync(); setWeekOffset(w => w - 1); }}
+              style={styles.weekNavBtn}
+            >
+              <Ionicons name="chevron-back" size={20} color="#fff" />
+            </Pressable>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.calStrip}>
+              {weekDays.map(d => {
+                const iso = toIso(d);
+                const isSelected = iso === selectedDate;
+                const isToday = iso === toIso(today);
+                const hasBkg = hasBooking(iso);
+                return (
+                  <Pressable
+                    key={iso}
+                    onPress={() => selectDate(iso)}
+                    style={[
+                      styles.dayCell,
+                      isSelected && { backgroundColor: colors.accent },
+                      !isSelected && isToday && { backgroundColor: 'rgba(255,255,255,0.1)' },
+                    ]}
+                  >
+                    <Text style={[styles.dayName, { color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)' }]}>
+                      {DAYS_SHORT[d.getDay()]}
+                    </Text>
+                    <Text style={[styles.dayNum, { color: isSelected ? '#fff' : 'rgba(255,255,255,0.9)' }]}>
+                      {d.getDate()}
+                    </Text>
+                    {hasBkg && <View style={[styles.dot, { backgroundColor: isSelected ? '#fff' : colors.accent }]} />}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable
+              onPress={() => { Haptics.selectionAsync(); setWeekOffset(w => w + 1); }}
+              style={styles.weekNavBtn}
+            >
+              <Ionicons name="chevron-forward" size={20} color="#fff" />
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── Month view grid ── */}
+        {viewMode === 'month' && (
+          <View style={styles.monthWrap}>
+            {/* Month navigation */}
+            <View style={styles.monthNav}>
+              <Pressable onPress={() => { Haptics.selectionAsync(); setMonthOffset(m => m - 1); }} style={styles.weekNavBtn}>
+                <Ionicons name="chevron-back" size={20} color="#fff" />
+              </Pressable>
+              <View style={styles.dayLetterRow}>
+                {DAYS_LETTER.map((l, i) => (
+                  <Text key={i} style={styles.dayLetter}>{l}</Text>
+                ))}
+              </View>
+              <Pressable onPress={() => { Haptics.selectionAsync(); setMonthOffset(m => m + 1); }} style={styles.weekNavBtn}>
+                <Ionicons name="chevron-forward" size={20} color="#fff" />
+              </Pressable>
+            </View>
+
+            {/* Grid rows */}
+            {monthGrid.map((row, ri) => (
+              <View key={ri} style={styles.monthRow}>
+                {/* spacer for prev/next arrows alignment */}
+                <View style={{ width: 32 }} />
+                {row.map((d, ci) => {
+                  if (!d) return <View key={ci} style={styles.monthCell} />;
+                  const iso = toIso(d);
+                  const isSelected = iso === selectedDate;
+                  const isToday = iso === toIso(today);
+                  const hasBkg = hasBooking(iso);
+                  return (
+                    <Pressable
+                      key={ci}
+                      onPress={() => selectDate(iso)}
+                      style={[
+                        styles.monthCell,
+                        isSelected && { backgroundColor: colors.accent, borderRadius: 20 },
+                        !isSelected && isToday && { backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 20 },
+                      ]}
+                    >
+                      <Text style={[
+                        styles.monthDayNum,
+                        { color: isSelected ? '#fff' : isToday ? '#fff' : 'rgba(255,255,255,0.85)' },
+                        isSelected && { fontFamily: 'Inter_700Bold' },
+                      ]}>
+                        {d.getDate()}
+                      </Text>
+                      {hasBkg && <View style={[styles.dot, { backgroundColor: isSelected ? '#fff' : colors.accent, marginTop: 1 }]} />}
+                    </Pressable>
+                  );
+                })}
+                <View style={{ width: 32 }} />
+              </View>
+            ))}
+          </View>
+        )}
       </LinearGradient>
 
       {/* Day Bookings */}
@@ -197,11 +324,14 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   headerTitle: { color: '#fff', fontSize: 26, fontFamily: 'Inter_700Bold', letterSpacing: -0.5 },
   headerSub: { color: 'rgba(255,255,255,0.65)', fontSize: 13, fontFamily: 'Inter_400Regular' },
+  toggleWrap: { flexDirection: 'row', borderRadius: 20, padding: 2, gap: 2 },
+  toggleBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 18 },
+  toggleText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
   newBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, marginTop: 4,
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
   },
-  newBtnText: { color: '#fff', fontSize: 13, fontFamily: 'Inter_600SemiBold' },
+  // Week view
   weekNav: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   weekNavBtn: { padding: 6 },
   calStrip: { flex: 1 },
@@ -212,6 +342,21 @@ const styles = StyleSheet.create({
   dayName: { fontSize: 11, fontFamily: 'Inter_500Medium', textTransform: 'uppercase', letterSpacing: 0.3 },
   dayNum: { fontSize: 18, fontFamily: 'Inter_700Bold' },
   dot: { width: 5, height: 5, borderRadius: 3, marginTop: 2 },
+  // Month view
+  monthWrap: { gap: 4 },
+  monthNav: { flexDirection: 'row', alignItems: 'center' },
+  dayLetterRow: { flex: 1, flexDirection: 'row' },
+  dayLetter: {
+    flex: 1, textAlign: 'center',
+    color: 'rgba(255,255,255,0.5)', fontSize: 11,
+    fontFamily: 'Inter_500Medium', textTransform: 'uppercase',
+  },
+  monthRow: { flexDirection: 'row', alignItems: 'center' },
+  monthCell: {
+    flex: 1, alignItems: 'center', paddingVertical: 5, gap: 1,
+  },
+  monthDayNum: { fontSize: 14, fontFamily: 'Inter_400Regular' },
+  // Booking list
   list: { padding: 16, gap: 12, flexGrow: 1 },
   sectionLabel: {
     fontSize: 12, fontFamily: 'Inter_500Medium',
