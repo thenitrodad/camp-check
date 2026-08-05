@@ -144,8 +144,12 @@ interface BookingsContextValue {
   bookings: Booking[];
   inspections: Record<string, Inspection>;
   inventory: Record<string, InventoryItem[]>;
+  inventoryTemplate: InventoryItem[];
   getBooking: (id: string) => Booking | undefined;
   getInspection: (bookingId: string) => Inspection;
+  addTemplateItem: (name: string, quantity: number) => void;
+  updateTemplateItem: (id: string, name: string, quantity: number) => void;
+  removeTemplateItem: (id: string) => void;
   toggleChecklistItem: (bookingId: string, sectionId: string, itemId: string) => void;
   skipChecklistItem: (bookingId: string, sectionId: string, itemId: string) => void;
   updateItemPhoto: (bookingId: string, sectionId: string, itemId: string, uri: string) => void;
@@ -172,6 +176,7 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
   const [bookings, setBookings] = useState<Booking[]>(() => makeSampleBookings());
   const [inspections, setInspections] = useState<Record<string, Inspection>>({});
   const [inventory, setInventory] = useState<Record<string, InventoryItem[]>>({});
+  const [inventoryTemplate, setInventoryTemplate] = useState<InventoryItem[]>(DEFAULT_INVENTORY);
   const syncTimer = useRef<ReturnType<typeof setTimeout>>();
   const initialized = useRef(false);
 
@@ -179,11 +184,13 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       // 1. Load from AsyncStorage first (instant)
-      const [rawB, rawI, rawInv] = await Promise.all([
+      const [rawB, rawI, rawInv, rawTpl] = await Promise.all([
         AsyncStorage.getItem('campcheck_bookings'),
         AsyncStorage.getItem('campcheck_inspections'),
         AsyncStorage.getItem('campcheck_inventory'),
+        AsyncStorage.getItem('campcheck_inventory_template'),
       ]);
+      if (rawTpl) setInventoryTemplate(JSON.parse(rawTpl));
       let localBookings: Booking[] | null = null;
       let localInspections: Record<string, Inspection> = {};
       let localInventory: Record<string, InventoryItem[]> = {};
@@ -248,6 +255,10 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     setInventory(next);
     AsyncStorage.setItem('campcheck_inventory', JSON.stringify(next));
   }, []);
+  const saveInventoryTemplate = useCallback((next: InventoryItem[]) => {
+    setInventoryTemplate(next);
+    AsyncStorage.setItem('campcheck_inventory_template', JSON.stringify(next));
+  }, []);
 
   const getBooking = useCallback((id: string) => bookings.find(b => b.id === id), [bookings]);
   const getInspection = useCallback((id: string) => inspections[id] ?? makeInspection(id), [inspections]);
@@ -282,7 +293,20 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     saveInspections({ ...inspections, [bId]: { ...cur, status: 'completed', signatureCaptured: true, completedAt: new Date().toISOString() } });
   }, [inspections, saveInspections]);
 
-  const getInventory = useCallback((bId: string) => inventory[bId] ?? DEFAULT_INVENTORY.map(i => ({ ...i })), [inventory]);
+  const getInventory = useCallback((bId: string) => inventory[bId] ?? inventoryTemplate.map(i => ({ ...i, status: 'present' as const })), [inventory, inventoryTemplate]);
+
+  const addTemplateItem = useCallback((name: string, quantity: number) => {
+    const next = [...inventoryTemplate, { id: `inv-tpl-${Date.now()}`, name, quantity, status: 'present' as const, notes: '' }];
+    saveInventoryTemplate(next);
+  }, [inventoryTemplate, saveInventoryTemplate]);
+
+  const updateTemplateItem = useCallback((id: string, name: string, quantity: number) => {
+    saveInventoryTemplate(inventoryTemplate.map(i => i.id !== id ? i : { ...i, name, quantity }));
+  }, [inventoryTemplate, saveInventoryTemplate]);
+
+  const removeTemplateItem = useCallback((id: string) => {
+    saveInventoryTemplate(inventoryTemplate.filter(i => i.id !== id));
+  }, [inventoryTemplate, saveInventoryTemplate]);
 
   const updateInventoryStatus = useCallback((bId: string, iId: string, status: ItemStatus) => {
     const cur = inventory[bId] ?? DEFAULT_INVENTORY.map(i => ({ ...i }));
@@ -345,8 +369,9 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <BookingsContext.Provider value={{
-      bookings, inspections, inventory,
+      bookings, inspections, inventory, inventoryTemplate,
       getBooking, getInspection,
+      addTemplateItem, updateTemplateItem, removeTemplateItem,
       toggleChecklistItem, skipChecklistItem, updateItemPhoto, removeItemPhoto, updateItemNotes, completeInspection,
       getInventory, updateInventoryStatus, updateInventoryItem, addInventoryItem, deleteInventoryItem,
       updateBookingAddress, addBookingPhoto, removeBookingPhoto, addBooking, updateBooking, deleteBooking,
