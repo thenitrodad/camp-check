@@ -1,11 +1,16 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  Clipboard,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +23,7 @@ import { useBookings } from '@/context/BookingsContext';
 import BookingCard from '@/components/BookingCard';
 import EmptyState from '@/components/EmptyState';
 import ImportBookingModal from '@/components/ImportBookingModal';
+import { getRecoveryKey, restoreFromKey } from '@/lib/supabase';
 import type { Booking } from '@/types';
 
 function todayISO() {
@@ -47,7 +53,38 @@ export default function DashboardScreen() {
   const [filter, setFilter] = useState<Filter>('today');
   const [refreshing, setRefreshing] = useState(false);
   const [importVisible, setImportVisible] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [restoreInput, setRestoreInput] = useState('');
+  const [restoring, setRestoring] = useState(false);
   const listRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    getRecoveryKey().then(setRecoveryKey);
+  }, []);
+
+  const handleCopyKey = () => {
+    Clipboard.setString(recoveryKey);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert('Copied!', 'Your recovery key has been copied to the clipboard.');
+  };
+
+  const handleRestore = async () => {
+    if (!restoreInput.trim()) return;
+    setRestoring(true);
+    const payload = await restoreFromKey(restoreInput.trim());
+    setRestoring(false);
+    if (payload) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Restored!', 'Your data has been restored. Restart the app to see all your bookings.', [
+        { text: 'OK', onPress: () => setSettingsVisible(false) },
+      ]);
+      setRecoveryKey(restoreInput.trim().toUpperCase());
+      setRestoreInput('');
+    } else {
+      Alert.alert('Not Found', 'No data found for that key. Check the code and try again.');
+    }
+  };
 
   const today = todayISO();
   const todayBookings = bookings.filter(b => b.checkIn === today);
@@ -129,6 +166,12 @@ export default function DashboardScreen() {
               style={[styles.addBtn, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
             >
               <Ionicons name="add" size={22} color="#fff" />
+            </Pressable>
+            <Pressable
+              onPress={() => { Haptics.selectionAsync(); setSettingsVisible(true); }}
+              style={[styles.addBtn, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
+            >
+              <Ionicons name="settings-outline" size={20} color="#fff" />
             </Pressable>
           </View>
         </View>
@@ -215,6 +258,69 @@ export default function DashboardScreen() {
 
       <ImportBookingModal visible={importVisible} onClose={() => setImportVisible(false)} />
 
+      {/* Settings / Recovery Key Sheet */}
+      <Modal visible={settingsVisible} transparent animationType="slide" onRequestClose={() => setSettingsVisible(false)}>
+        <View style={[styles.settingsSheet, { backgroundColor: colors.background }]}>
+          <View style={[styles.settingsHeader, { borderBottomColor: colors.border, backgroundColor: colors.card }]}>
+            <Text style={[styles.settingsTitle, { color: colors.foreground }]}>Settings</Text>
+            <Pressable onPress={() => setSettingsVisible(false)}>
+              <Ionicons name="close" size={24} color={colors.foreground} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.settingsBody} showsVerticalScrollIndicator={false}>
+            {/* Recovery key */}
+            <View style={[styles.settingsCard, { backgroundColor: colors.card }]}>
+              <View style={styles.settingsCardHeader}>
+                <Ionicons name="key-outline" size={20} color={colors.primary} />
+                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Your Recovery Key</Text>
+              </View>
+              <Text style={[styles.settingsCardSub, { color: colors.mutedForeground }]}>
+                Write this down or save it somewhere safe. If you lose or replace your phone, entering this key restores all your bookings and photos.
+              </Text>
+
+              <Pressable
+                onPress={handleCopyKey}
+                style={[styles.keyBox, { backgroundColor: colors.muted, borderColor: colors.border }]}
+              >
+                <Text style={[styles.keyText, { color: colors.primary }]}>{recoveryKey || '…'}</Text>
+                <Ionicons name="copy-outline" size={18} color={colors.mutedForeground} />
+              </Pressable>
+              <Text style={[styles.keyHint, { color: colors.mutedForeground }]}>Tap to copy</Text>
+            </View>
+
+            {/* Restore from key */}
+            <View style={[styles.settingsCard, { backgroundColor: colors.card }]}>
+              <View style={styles.settingsCardHeader}>
+                <Ionicons name="cloud-download-outline" size={20} color={colors.accent} />
+                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Restore on New Device</Text>
+              </View>
+              <Text style={[styles.settingsCardSub, { color: colors.mutedForeground }]}>
+                Got a new phone? Enter your recovery key from your old device to pull all your data back.
+              </Text>
+              <TextInput
+                style={[styles.restoreInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.muted }]}
+                value={restoreInput}
+                onChangeText={setRestoreInput}
+                placeholder="e.g. CAMP-7X2K"
+                placeholderTextColor={colors.mutedForeground}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+              <Pressable
+                onPress={handleRestore}
+                disabled={restoring || !restoreInput.trim()}
+                style={[styles.restoreBtn, { backgroundColor: restoring || !restoreInput.trim() ? colors.muted : colors.accent }]}
+              >
+                <Text style={[styles.restoreBtnText, { color: restoring || !restoreInput.trim() ? colors.mutedForeground : '#fff' }]}>
+                  {restoring ? 'Restoring…' : 'Restore Data'}
+                </Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
       {/* Booking List */}
       <FlatList
         ref={listRef}
@@ -290,4 +396,28 @@ const styles = StyleSheet.create({
   activeFilterChipText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   list: { paddingTop: 16, paddingBottom: 120, flexGrow: 1 },
   sectionHeader: { fontSize: 12, fontFamily: 'Inter_500Medium', letterSpacing: 0.6, textTransform: 'uppercase', paddingHorizontal: 20, marginBottom: 8 },
+  // Settings sheet
+  settingsSheet: { flex: 1, marginTop: 60, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
+  settingsHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: 20, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  settingsTitle: { fontSize: 18, fontFamily: 'Inter_700Bold' },
+  settingsBody: { padding: 16, gap: 16, paddingBottom: 60 },
+  settingsCard: { borderRadius: 16, padding: 16, gap: 10 },
+  settingsCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  settingsCardTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold' },
+  settingsCardSub: { fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 18 },
+  keyBox: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+  },
+  keyText: { fontSize: 22, fontFamily: 'Inter_700Bold', letterSpacing: 2 },
+  keyHint: { fontSize: 11, fontFamily: 'Inter_400Regular', textAlign: 'center', marginTop: -4 },
+  restoreInput: {
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11,
+    fontSize: 18, fontFamily: 'Inter_600SemiBold', letterSpacing: 2, textAlign: 'center',
+  },
+  restoreBtn: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  restoreBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
 });

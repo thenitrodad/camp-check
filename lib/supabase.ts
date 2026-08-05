@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Booking, Inspection, InventoryItem } from '@/types';
 
@@ -17,46 +16,91 @@ export interface SyncPayload {
   updatedAt: string;
 }
 
-// Each device gets its own isolated row in Supabase.
-// Android ID is stable across reinstalls (changes only on factory reset).
-// Falls back to a UUID stored in AsyncStorage for edge cases.
-const DEVICE_ID_KEY = '@campcheck_device_id';
-let _rowId: string | null = null;
+// ─── Recovery Key ────────────────────────────────────────────────────────────
+// A short code the owner writes down once. Entering it on a new phone
+// restores all their data from Supabase. Stored locally + used as the row ID.
 
-async function getRowId(): Promise<string> {
-  if (_rowId) return _rowId;
+const RECOVERY_KEY_STORAGE = '@campcheck_recovery_key';
+let _recoveryKey: string | null = null;
 
-  // Try Android device ID first (stable, no storage needed)
-  const androidId = Application.getAndroidId?.();
-  if (androidId) {
-    _rowId = `device_${androidId}`;
-    return _rowId;
+function generateKey(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I ambiguity
+  let key = '';
+  for (let i = 0; i < 8; i++) {
+    if (i === 4) key += '-';
+    key += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return key; // e.g. "CAMP-7X2K"
+}
+
+/** Returns the owner's recovery key, generating one on first use. */
+export async function getRecoveryKey(): Promise<string> {
+  if (_recoveryKey) return _recoveryKey;
+
+  const stored = await AsyncStorage.getItem(RECOVERY_KEY_STORAGE);
+  if (stored) {
+    _recoveryKey = stored;
+    return _recoveryKey;
   }
 
-  // Fallback: UUID stored in AsyncStorage
+  // First time: generate a new key and migrate any existing device data
+  const newKey = generateKey();
+  await AsyncStorage.setItem(RECOVERY_KEY_STORAGE, newKey);
+  _recoveryKey = newKey;
+
+  // Try to migrate old device-ID-based data to the new key
+  await _migrateFromLegacyRow(newKey);
+
+  return _recoveryKey;
+}
+
+/** Restore from a key the owner typed in. Returns the payload if found. */
+export async function restoreFromKey(key: string): Promise<SyncPayload | null> {
+  const normalized = key.trim().toUpperCase();
   try {
-    const stored = await AsyncStorage.getItem(DEVICE_ID_KEY);
-    if (stored) {
-      _rowId = stored;
-      return _rowId;
-    }
-    // Generate a new UUID-like ID
-    const newId = `device_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    await AsyncStorage.setItem(DEVICE_ID_KEY, newId);
-    _rowId = newId;
-    return _rowId;
+    const { data, error } = await supabase
+      .from('campcheck_sync')
+      .select('data')
+      .eq('id', normalized)
+      .single();
+    if (error || !data) return null;
+    // Save this key locally going forward
+    await AsyncStorage.setItem(RECOVERY_KEY_STORAGE, normalized);
+    _recoveryKey = normalized;
+    return data.data as SyncPayload;
   } catch {
-    _rowId = 'main'; // last resort
-    return _rowId;
+    return null;
   }
 }
 
+async function _migrateFromLegacyRow(newKey: string): Promise<void> {
+  // Check old 'main' row (earliest version of the app)
+  const legacyIds = ['main'];
+  for (const legacyId of legacyIds) {
+    try {
+      const { data } = await supabase
+        .from('campcheck_sync')
+        .select('data')
+        .eq('id', legacyId)
+        .single();
+      if (data?.data) {
+        await supabase
+          .from('campcheck_sync')
+          .upsert({ id: newKey, data: data.data, updated_at: new Date().toISOString() });
+        return;
+      }
+    } catch { /* ignore */ }
+  }
+}
+
+// ─── Sync ────────────────────────────────────────────────────────────────────
+
 export async function pushToCloud(payload: SyncPayload): Promise<void> {
   try {
-    const rowId = await getRowId();
+    const key = await getRecoveryKey();
     const { error } = await supabase
       .from('campcheck_sync')
-      .upsert({ id: rowId, data: payload, updated_at: payload.updatedAt });
+      .upsert({ id: key, data: payload, updated_at: payload.updatedAt });
     if (error) console.log('[Supabase] push error:', error.message);
   } catch {
     console.log('[Supabase] push failed (offline?)');
@@ -65,33 +109,13 @@ export async function pushToCloud(payload: SyncPayload): Promise<void> {
 
 export async function pullFromCloud(): Promise<SyncPayload | null> {
   try {
-    const rowId = await getRowId();
-
-    // Try device-specific row first
+    const key = await getRecoveryKey();
     const { data, error } = await supabase
       .from('campcheck_sync')
       .select('data')
-      .eq('id', rowId)
+      .eq('id', key)
       .single();
-
     if (!error && data) return data.data as SyncPayload;
-
-    // Migration: if no device row yet, check the old 'main' row (owner's existing data)
-    if (rowId !== 'main') {
-      const { data: legacy } = await supabase
-        .from('campcheck_sync')
-        .select('data')
-        .eq('id', 'main')
-        .single();
-      if (legacy?.data) {
-        // Migrate: write it to this device's row going forward
-        await supabase
-          .from('campcheck_sync')
-          .upsert({ id: rowId, data: legacy.data, updated_at: new Date().toISOString() });
-        return legacy.data as SyncPayload;
-      }
-    }
-
     return null;
   } catch {
     console.log('[Supabase] pull failed (offline?)');
