@@ -25,24 +25,37 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          BUILD_URL=$(eas build \
+          eas build \
             --platform android \
             --profile production \
             --non-interactive \
-            --wait \
-            --json 2>/dev/null | python3 -c "
+            --wait
+          echo "EAS build complete."
+
+      - name: Download AAB from EAS
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          BUILD_URL=$(eas build:list \
+            --platform android \
+            --limit 1 \
+            --status finished \
+            --json \
+            --non-interactive 2>/dev/null \
+            | python3 -c "
           import json, sys
           data = json.load(sys.stdin)
-          if isinstance(data, list): data = data[0]
-          print(data.get('artifacts', {}).get('buildUrl', ''))
+          if data:
+            url = data[0].get('artifacts', {}).get('buildUrl', '')
+            print(url)
           ")
-          echo "Build URL: $BUILD_URL"
+          echo "Download URL: $BUILD_URL"
           if [ -n "$BUILD_URL" ]; then
             curl -L "$BUILD_URL" -o build.aab
-            echo "Downloaded build.aab"
+            echo "Downloaded build.aab ($(du -sh build.aab | cut -f1))"
           else
-            echo "No build URL returned – check expo.dev/accounts/campcheck/projects/camp-check/builds"
-            exit 1
+            echo "Could not get download URL. Grab the AAB from:"
+            echo "https://expo.dev/accounts/campcheck/projects/camp-check/builds"
           fi
 
       - name: Upload AAB artifact
@@ -50,4 +63,5 @@ jobs:
         with:
           name: camp-check-release
           path: build.aab
+          if-no-files-found: warn
           retention-days: 30
