@@ -29,7 +29,7 @@ function formatDate(iso: string) {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
-type Filter = 'today' | 'upcoming' | 'all' | 'active' | 'pending';
+type Filter = 'today' | 'upcoming' | 'all' | 'active' | 'pending' | 'past';
 
 const FILTER_LABELS: Record<Filter, string> = {
   today: 'Today',
@@ -37,6 +37,7 @@ const FILTER_LABELS: Record<Filter, string> = {
   all: 'All',
   active: 'Active Rentals',
   pending: 'Pending Inspection',
+  past: 'Past',
 };
 
 export default function DashboardScreen() {
@@ -53,13 +54,17 @@ export default function DashboardScreen() {
   const upcomingBookings = bookings.filter(b => b.checkIn > today);
   const activeBookings = bookings.filter(b => b.checkIn <= today && b.checkOut >= today);
   const pendingBookings = bookings.filter(b => b.inspectionStatus !== 'completed');
+  const pastBookings = bookings.filter(b => b.checkOut < today).sort((a, b) => b.checkOut.localeCompare(a.checkOut));
+  // 'all' only shows current + upcoming (not past) so the list stays clean
+  const currentBookings = bookings.filter(b => b.checkOut >= today).sort((a, b) => a.checkIn.localeCompare(b.checkIn));
 
   const filtered: Booking[] =
     filter === 'today' ? todayBookings :
     filter === 'upcoming' ? upcomingBookings :
     filter === 'active' ? activeBookings :
     filter === 'pending' ? pendingBookings :
-    bookings;
+    filter === 'past' ? pastBookings :
+    currentBookings;
 
   const stats = [
     {
@@ -175,7 +180,7 @@ export default function DashboardScreen() {
         </View>
       ) : (
         <View style={[styles.filterRow, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-          {(['today', 'upcoming', 'all'] as Filter[]).map(f => (
+          {(['today', 'upcoming', 'all', 'past'] as Filter[]).map(f => (
             <Pressable
               key={f}
               onPress={() => setFilter(f)}
@@ -196,6 +201,11 @@ export default function DashboardScreen() {
               {f === 'upcoming' && upcomingBookings.length > 0 && (
                 <View style={[styles.badge, { backgroundColor: colors.border }]}>
                   <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>{upcomingBookings.length}</Text>
+                </View>
+              )}
+              {f === 'past' && pastBookings.length > 0 && (
+                <View style={[styles.badge, { backgroundColor: colors.border }]}>
+                  <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>{pastBookings.length}</Text>
                 </View>
               )}
             </Pressable>
@@ -222,12 +232,13 @@ export default function DashboardScreen() {
               filter === 'today' ? 'No check-ins today' :
               filter === 'active' ? 'No active rentals' :
               filter === 'pending' ? 'All inspections complete!' :
+              filter === 'past' ? 'No past bookings yet' :
               'No bookings'
             }
             subtitle={
-              filter === 'pending'
-                ? 'Every booking has been inspected'
-                : 'Tap + to add a new booking'
+              filter === 'pending' ? 'Every booking has been inspected' :
+              filter === 'past' ? 'Completed bookings will appear here' :
+              'Tap + to add a new booking'
             }
           />
         }
