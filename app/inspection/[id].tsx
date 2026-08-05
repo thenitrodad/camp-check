@@ -14,7 +14,7 @@ export default function InspectionScreen() {
   const colors = useColors();
   const {
     getBooking, getInspection,
-    toggleChecklistItem, updateItemPhoto, updateItemNotes,
+    toggleChecklistItem, skipChecklistItem, updateItemPhoto, removeItemPhoto, updateItemNotes,
     completeInspection, inspectionProgress,
   } = useBookings();
 
@@ -59,8 +59,8 @@ export default function InspectionScreen() {
     }
   };
 
-  const totalItems = inspection.sections.reduce((acc, s) => acc + s.items.length, 0);
-  const checkedItems = inspection.sections.reduce((acc, s) => acc + s.items.filter(i => i.checked).length, 0);
+  const totalItems = inspection.sections.reduce((acc, s) => acc + s.items.filter(i => !i.skipped).length, 0);
+  const checkedItems = inspection.sections.reduce((acc, s) => acc + s.items.filter(i => i.checked && !i.skipped).length, 0);
 
   const sectionData = inspection.sections.map(section => ({
     ...section,
@@ -103,10 +103,11 @@ export default function InspectionScreen() {
         contentContainerStyle={{ paddingBottom: 160 }}
         stickySectionHeadersEnabled={false}
         renderSectionHeader={({ section }) => {
-          const sectionChecked = section.items.filter(i => i.checked).length;
-          const sectionTotal = inspection.sections.find(s => s.id === section.id)?.items.length ?? 0;
+          const activeItems = (inspection.sections.find(s => s.id === section.id)?.items ?? []).filter(i => !i.skipped);
+          const sectionChecked = activeItems.filter(i => i.checked).length;
+          const sectionTotal = activeItems.length;
           const isExpanded = expandedSections.has(section.id);
-          const allDone = sectionChecked === sectionTotal;
+          const allDone = sectionTotal > 0 && sectionChecked === sectionTotal;
 
           return (
             <Pressable
@@ -143,7 +144,9 @@ export default function InspectionScreen() {
             <InspectionCheckItem
               item={item}
               onToggle={() => toggleChecklistItem(id, section.id, item.id)}
+              onSkip={() => skipChecklistItem(id, section.id, item.id)}
               onPhotoCapture={uri => updateItemPhoto(id, section.id, item.id, uri)}
+              onPhotoDelete={() => removeItemPhoto(id, section.id, item.id)}
               onNotesChange={notes => updateItemNotes(id, section.id, item.id, notes)}
             />
           </View>

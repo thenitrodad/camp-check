@@ -16,6 +16,7 @@ export interface ChecklistItem {
   id: string;
   label: string;
   checked: boolean;
+  skipped: boolean;
   notes: string;
   photoUri?: string;
 }

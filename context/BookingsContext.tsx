@@ -69,52 +69,52 @@ function isStale(saved: Booking[]): boolean {
 // ─── Inspection template ──────────────────────────────────────────────────────
 const DEFAULT_SECTIONS: InspectionSection[] = [
   { id: 'exterior', title: 'Exterior', icon: 'car-outline', items: [
-    { id: 'ext-1', label: 'Body & Paint Condition', checked: false, notes: '' },
-    { id: 'ext-2', label: 'Entry Doors & Locks', checked: false, notes: '' },
-    { id: 'ext-3', label: 'Windows & Seals', checked: false, notes: '' },
-    { id: 'ext-4', label: 'Roof Condition', checked: false, notes: '' },
-    { id: 'ext-5', label: 'Exterior Lights', checked: false, notes: '' },
+    { id: 'ext-1', label: 'Body & Paint Condition', checked: false, skipped: false, notes: '' },
+    { id: 'ext-2', label: 'Entry Doors & Locks', checked: false, skipped: false, notes: '' },
+    { id: 'ext-3', label: 'Windows & Seals', checked: false, skipped: false, notes: '' },
+    { id: 'ext-4', label: 'Roof Condition', checked: false, skipped: false, notes: '' },
+    { id: 'ext-5', label: 'Exterior Lights', checked: false, skipped: false, notes: '' },
   ]},
   { id: 'interior', title: 'Interior', icon: 'home-outline', items: [
-    { id: 'int-1', label: 'Floors & Carpets', checked: false, notes: '' },
-    { id: 'int-2', label: 'Walls & Ceiling', checked: false, notes: '' },
-    { id: 'int-3', label: 'Kitchen Appliances', checked: false, notes: '' },
-    { id: 'int-4', label: 'Furniture & Upholstery', checked: false, notes: '' },
-    { id: 'int-5', label: 'Interior Lights', checked: false, notes: '' },
+    { id: 'int-1', label: 'Floors & Carpets', checked: false, skipped: false, notes: '' },
+    { id: 'int-2', label: 'Walls & Ceiling', checked: false, skipped: false, notes: '' },
+    { id: 'int-3', label: 'Kitchen Appliances', checked: false, skipped: false, notes: '' },
+    { id: 'int-4', label: 'Furniture & Upholstery', checked: false, skipped: false, notes: '' },
+    { id: 'int-5', label: 'Interior Lights', checked: false, skipped: false, notes: '' },
   ]},
   { id: 'slides', title: 'Slides', icon: 'resize-outline', items: [
-    { id: 'sl-1', label: 'Slide Extension/Retraction', checked: false, notes: '' },
-    { id: 'sl-2', label: 'Slide Seals & Weatherstrip', checked: false, notes: '' },
+    { id: 'sl-1', label: 'Slide Extension/Retraction', checked: false, skipped: false, notes: '' },
+    { id: 'sl-2', label: 'Slide Seals & Weatherstrip', checked: false, skipped: false, notes: '' },
   ]},
   { id: 'awning', title: 'Awning', icon: 'sunny-outline', items: [
-    { id: 'aw-1', label: 'Awning Extension & Retraction', checked: false, notes: '' },
-    { id: 'aw-2', label: 'Fabric Condition', checked: false, notes: '' },
-    { id: 'aw-3', label: 'Awning Hardware', checked: false, notes: '' },
+    { id: 'aw-1', label: 'Awning Extension & Retraction', checked: false, skipped: false, notes: '' },
+    { id: 'aw-2', label: 'Fabric Condition', checked: false, skipped: false, notes: '' },
+    { id: 'aw-3', label: 'Awning Hardware', checked: false, skipped: false, notes: '' },
   ]},
   { id: 'tires', title: 'Tires', icon: 'ellipse-outline', items: [
-    { id: 'ti-1', label: 'Tire Pressure (All)', checked: false, notes: '' },
-    { id: 'ti-2', label: 'Tread Depth & Wear', checked: false, notes: '' },
-    { id: 'ti-3', label: 'Spare Tire', checked: false, notes: '' },
+    { id: 'ti-1', label: 'Tire Pressure (All)', checked: false, skipped: false, notes: '' },
+    { id: 'ti-2', label: 'Tread Depth & Wear', checked: false, skipped: false, notes: '' },
+    { id: 'ti-3', label: 'Spare Tire', checked: false, skipped: false, notes: '' },
   ]},
   { id: 'propane', title: 'Propane', icon: 'flame-outline', items: [
-    { id: 'pr-1', label: 'Tank Level Verified', checked: false, notes: '' },
-    { id: 'pr-2', label: 'Hose Connections', checked: false, notes: '' },
-    { id: 'pr-3', label: 'Leak Test Passed', checked: false, notes: '' },
+    { id: 'pr-1', label: 'Tank Level Verified', checked: false, skipped: false, notes: '' },
+    { id: 'pr-2', label: 'Hose Connections', checked: false, skipped: false, notes: '' },
+    { id: 'pr-3', label: 'Leak Test Passed', checked: false, skipped: false, notes: '' },
   ]},
   { id: 'water', title: 'Water System', icon: 'water-outline', items: [
-    { id: 'wa-1', label: 'Fresh Water Tank Level', checked: false, notes: '' },
-    { id: 'wa-2', label: 'Grey & Black Tank Status', checked: false, notes: '' },
-    { id: 'wa-3', label: 'Water Pump Operation', checked: false, notes: '' },
-    { id: 'wa-4', label: 'Hose & Connections', checked: false, notes: '' },
+    { id: 'wa-1', label: 'Fresh Water Tank Level', checked: false, skipped: false, notes: '' },
+    { id: 'wa-2', label: 'Grey & Black Tank Status', checked: false, skipped: false, notes: '' },
+    { id: 'wa-3', label: 'Water Pump Operation', checked: false, skipped: false, notes: '' },
+    { id: 'wa-4', label: 'Hose & Connections', checked: false, skipped: false, notes: '' },
   ]},
   { id: 'battery', title: 'Battery', icon: 'battery-charging-outline', items: [
-    { id: 'ba-1', label: 'Charge Level', checked: false, notes: '' },
-    { id: 'ba-2', label: 'Terminal Connections', checked: false, notes: '' },
+    { id: 'ba-1', label: 'Charge Level', checked: false, skipped: false, notes: '' },
+    { id: 'ba-2', label: 'Terminal Connections', checked: false, skipped: false, notes: '' },
   ]},
   { id: 'safety', title: 'Safety Devices', icon: 'shield-checkmark-outline', items: [
-    { id: 'sa-1', label: 'Smoke Detector Test', checked: false, notes: '' },
-    { id: 'sa-2', label: 'CO Detector Test', checked: false, notes: '' },
-    { id: 'sa-3', label: 'Fire Extinguisher Present', checked: false, notes: '' },
+    { id: 'sa-1', label: 'Smoke Detector Test', checked: false, skipped: false, notes: '' },
+    { id: 'sa-2', label: 'CO Detector Test', checked: false, skipped: false, notes: '' },
+    { id: 'sa-3', label: 'Fire Extinguisher Present', checked: false, skipped: false, notes: '' },
   ]},
 ];
 
@@ -147,7 +147,9 @@ interface BookingsContextValue {
   getBooking: (id: string) => Booking | undefined;
   getInspection: (bookingId: string) => Inspection;
   toggleChecklistItem: (bookingId: string, sectionId: string, itemId: string) => void;
+  skipChecklistItem: (bookingId: string, sectionId: string, itemId: string) => void;
   updateItemPhoto: (bookingId: string, sectionId: string, itemId: string, uri: string) => void;
+  removeItemPhoto: (bookingId: string, sectionId: string, itemId: string) => void;
   updateItemNotes: (bookingId: string, sectionId: string, itemId: string, notes: string) => void;
   completeInspection: (bookingId: string) => void;
   getInventory: (bookingId: string) => InventoryItem[];
@@ -255,9 +257,19 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     saveInspections({ ...inspections, [bId]: { ...cur, status: 'in_progress', sections: cur.sections.map(s => s.id !== sId ? s : { ...s, items: s.items.map(i => i.id !== iId ? i : { ...i, checked: !i.checked }) }) } });
   }, [inspections, saveInspections]);
 
+  const skipChecklistItem = useCallback((bId: string, sId: string, iId: string) => {
+    const cur = inspections[bId] ?? makeInspection(bId);
+    saveInspections({ ...inspections, [bId]: { ...cur, status: 'in_progress', sections: cur.sections.map(s => s.id !== sId ? s : { ...s, items: s.items.map(i => i.id !== iId ? i : { ...i, skipped: !i.skipped, checked: false }) }) } });
+  }, [inspections, saveInspections]);
+
   const updateItemPhoto = useCallback((bId: string, sId: string, iId: string, uri: string) => {
     const cur = inspections[bId] ?? makeInspection(bId);
     saveInspections({ ...inspections, [bId]: { ...cur, sections: cur.sections.map(s => s.id !== sId ? s : { ...s, items: s.items.map(i => i.id !== iId ? i : { ...i, photoUri: uri }) }) } });
+  }, [inspections, saveInspections]);
+
+  const removeItemPhoto = useCallback((bId: string, sId: string, iId: string) => {
+    const cur = inspections[bId] ?? makeInspection(bId);
+    saveInspections({ ...inspections, [bId]: { ...cur, sections: cur.sections.map(s => s.id !== sId ? s : { ...s, items: s.items.map(i => i.id !== iId ? i : { ...i, photoUri: undefined }) }) } });
   }, [inspections, saveInspections]);
 
   const updateItemNotes = useCallback((bId: string, sId: string, iId: string, notes: string) => {
@@ -327,7 +339,7 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
   const inspectionProgress = useCallback((bId: string) => {
     const insp = inspections[bId];
     if (!insp) return 0;
-    const all = insp.sections.flatMap(s => s.items);
+    const all = insp.sections.flatMap(s => s.items).filter(i => !i.skipped);
     return all.length === 0 ? 0 : all.filter(i => i.checked).length / all.length;
   }, [inspections]);
 
@@ -335,7 +347,7 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     <BookingsContext.Provider value={{
       bookings, inspections, inventory,
       getBooking, getInspection,
-      toggleChecklistItem, updateItemPhoto, updateItemNotes, completeInspection,
+      toggleChecklistItem, skipChecklistItem, updateItemPhoto, removeItemPhoto, updateItemNotes, completeInspection,
       getInventory, updateInventoryStatus, updateInventoryItem, addInventoryItem, deleteInventoryItem,
       updateBookingAddress, addBookingPhoto, removeBookingPhoto, addBooking, updateBooking, deleteBooking,
       inspectionProgress,
