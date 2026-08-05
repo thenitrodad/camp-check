@@ -22,7 +22,7 @@ import { useBookings } from '@/context/BookingsContext';
 import BookingCard from '@/components/BookingCard';
 import EmptyState from '@/components/EmptyState';
 import ImportBookingModal from '@/components/ImportBookingModal';
-import { getOwnerEmail, setOwnerEmail, switchToEmail } from '@/lib/supabase';
+import { getSession, signUp, signIn, signOut } from '@/lib/supabase';
 import type { Booking } from '@/types';
 
 function todayISO() {
@@ -53,51 +53,66 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [importVisible, setImportVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [ownerEmail, setOwnerEmailState] = useState('');
-  const [setupVisible, setSetupVisible] = useState(false);
-  const [emailInput, setEmailInput] = useState('');
-  const [switchInput, setSwitchInput] = useState('');
-  const [switching, setSwitching] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [authVisible, setAuthVisible] = useState(false);
+  const [authMode, setAuthMode] = useState<'signup' | 'signin'>('signup');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authConfirm, setAuthConfirm] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [sessionEmail, setSessionEmail] = useState('');
   const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
-    getOwnerEmail().then(email => {
-      if (email) {
-        setOwnerEmailState(email);
+    getSession().then(session => {
+      if (session?.user) {
+        setSessionEmail(session.user.email ?? '');
       } else {
-        setSetupVisible(true); // first launch — ask for email
+        setAuthVisible(true);
       }
     });
   }, []);
 
-  const handleSaveEmail = async () => {
-    const trimmed = emailInput.trim().toLowerCase();
-    if (!trimmed.includes('@')) return;
-    setSaving(true);
-    await setOwnerEmail(trimmed);
-    setSaving(false);
-    setOwnerEmailState(trimmed);
-    setSetupVisible(false);
-    setEmailInput('');
+  const handleAuth = async () => {
+    setAuthError('');
+    const email = authEmail.trim().toLowerCase();
+    const password = authPassword;
+    if (!email.includes('@') || password.length < 6) {
+      setAuthError('Enter a valid email and a password of at least 6 characters.');
+      return;
+    }
+    if (authMode === 'signup' && password !== authConfirm) {
+      setAuthError('Passwords do not match.');
+      return;
+    }
+    setAuthLoading(true);
+    const result = authMode === 'signup'
+      ? await signUp(email, password)
+      : await signIn(email, password);
+    setAuthLoading(false);
+    if (result.error) {
+      setAuthError(result.error);
+    } else {
+      setSessionEmail(email);
+      setAuthVisible(false);
+      setAuthPassword('');
+      setAuthConfirm('');
+    }
   };
 
-  const handleSwitch = async () => {
-    const trimmed = switchInput.trim().toLowerCase();
-    if (!trimmed.includes('@')) return;
-    setSwitching(true);
-    const payload = await switchToEmail(trimmed);
-    setSwitching(false);
-    if (payload) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setOwnerEmailState(trimmed);
-      setSwitchInput('');
-      Alert.alert('Restored!', 'Your data has been restored. Restart the app to see your bookings.', [
-        { text: 'OK', onPress: () => setSettingsVisible(false) },
-      ]);
-    } else {
-      Alert.alert('Not Found', 'No data found for that email. Make sure you use the same email from your old device.');
-    }
+  const handleSignOut = () => {
+    Alert.alert('Sign Out', 'You will need to sign back in to access your data.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out', style: 'destructive', onPress: async () => {
+          await signOut();
+          setSessionEmail('');
+          setSettingsVisible(false);
+          setAuthMode('signin');
+          setAuthVisible(true);
+        },
+      },
+    ]);
   };
 
   const today = todayISO();
@@ -272,34 +287,75 @@ export default function DashboardScreen() {
 
       <ImportBookingModal visible={importVisible} onClose={() => setImportVisible(false)} />
 
-      {/* First-launch email setup — blocks until email is entered */}
-      <Modal visible={setupVisible} transparent={false} animationType="fade">
+      {/* Auth Screen — shown until signed in */}
+      <Modal visible={authVisible} transparent={false} animationType="fade">
         <View style={[styles.setupScreen, { backgroundColor: colors.primary }]}>
-          <Ionicons name="shield-checkmark-outline" size={56} color="#fff" style={{ marginBottom: 16 }} />
-          <Text style={styles.setupTitle}>Welcome to CampCheck</Text>
-          <Text style={styles.setupSub}>
-            Enter your email to secure your bookings and photos. You'll use it to restore everything on a new phone — no passwords, no account needed.
-          </Text>
+          <Ionicons name="shield-checkmark-outline" size={56} color="#fff" style={{ marginBottom: 8 }} />
+          <Text style={styles.setupTitle}>CampCheck</Text>
+
+          {/* Mode toggle */}
+          <View style={styles.authToggle}>
+            {(['signup', 'signin'] as const).map(m => (
+              <Pressable
+                key={m}
+                onPress={() => { setAuthMode(m); setAuthError(''); }}
+                style={[styles.authToggleBtn, authMode === m && styles.authToggleBtnActive]}
+              >
+                <Text style={[styles.authToggleText, authMode === m && styles.authToggleTextActive]}>
+                  {m === 'signup' ? 'Create Account' : 'Sign In'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
           <TextInput
             style={[styles.setupInput, { backgroundColor: '#fff', color: colors.primary }]}
-            value={emailInput}
-            onChangeText={setEmailInput}
-            placeholder="your@email.com"
-            placeholderTextColor={colors.mutedForeground}
+            value={authEmail}
+            onChangeText={setAuthEmail}
+            placeholder="Email"
+            placeholderTextColor="#9ca3af"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
-            autoFocus
           />
+          <TextInput
+            style={[styles.setupInput, { backgroundColor: '#fff', color: colors.primary }]}
+            value={authPassword}
+            onChangeText={setAuthPassword}
+            placeholder="Password (6+ characters)"
+            placeholderTextColor="#9ca3af"
+            secureTextEntry
+          />
+          {authMode === 'signup' && (
+            <TextInput
+              style={[styles.setupInput, { backgroundColor: '#fff', color: colors.primary }]}
+              value={authConfirm}
+              onChangeText={setAuthConfirm}
+              placeholder="Confirm Password"
+              placeholderTextColor="#9ca3af"
+              secureTextEntry
+            />
+          )}
+
+          {authError ? (
+            <Text style={styles.authError}>{authError}</Text>
+          ) : null}
+
           <Pressable
-            onPress={handleSaveEmail}
-            disabled={saving || !emailInput.includes('@')}
-            style={[styles.setupBtn, { backgroundColor: saving || !emailInput.includes('@') ? 'rgba(255,255,255,0.3)' : '#fff' }]}
+            onPress={handleAuth}
+            disabled={authLoading}
+            style={[styles.setupBtn, { backgroundColor: authLoading ? 'rgba(255,255,255,0.3)' : '#fff' }]}
           >
             <Text style={[styles.setupBtnText, { color: colors.primary }]}>
-              {saving ? 'Saving…' : 'Get Started'}
+              {authLoading ? 'Please wait…' : authMode === 'signup' ? 'Create Account' : 'Sign In'}
             </Text>
           </Pressable>
+
+          {authMode === 'signup' && (
+            <Text style={styles.authHint}>
+              New phone later? Just sign in with the same email and password — your data comes back automatically.
+            </Text>
+          )}
         </View>
       </Modal>
 
@@ -314,48 +370,21 @@ export default function DashboardScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.settingsBody} showsVerticalScrollIndicator={false}>
-            {/* Current email */}
             <View style={[styles.settingsCard, { backgroundColor: colors.card }]}>
               <View style={styles.settingsCardHeader}>
-                <Ionicons name="mail-outline" size={20} color={colors.primary} />
-                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Backup Email</Text>
+                <Ionicons name="person-circle-outline" size={20} color={colors.primary} />
+                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Account</Text>
               </View>
-              <Text style={[styles.settingsCardSub, { color: colors.mutedForeground }]}>
-                Your data is backed up under this email. On a new phone, just enter it to restore everything.
-              </Text>
               <View style={[styles.emailDisplay, { backgroundColor: colors.muted, borderColor: colors.border }]}>
                 <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                <Text style={[styles.emailText, { color: colors.foreground }]}>{ownerEmail}</Text>
-              </View>
-            </View>
-
-            {/* Restore / switch email */}
-            <View style={[styles.settingsCard, { backgroundColor: colors.card }]}>
-              <View style={styles.settingsCardHeader}>
-                <Ionicons name="cloud-download-outline" size={20} color={colors.accent} />
-                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Restore from Another Device</Text>
+                <Text style={[styles.emailText, { color: colors.foreground }]}>{sessionEmail}</Text>
               </View>
               <Text style={[styles.settingsCardSub, { color: colors.mutedForeground }]}>
-                Enter a different email to restore bookings and photos from another device.
+                On a new phone, install CampCheck and sign in with this email and password to restore all your data.
               </Text>
-              <TextInput
-                style={[styles.restoreInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.muted }]}
-                value={switchInput}
-                onChangeText={setSwitchInput}
-                placeholder="other@email.com"
-                placeholderTextColor={colors.mutedForeground}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <Pressable
-                onPress={handleSwitch}
-                disabled={switching || !switchInput.includes('@')}
-                style={[styles.restoreBtn, { backgroundColor: switching || !switchInput.includes('@') ? colors.muted : colors.accent }]}
-              >
-                <Text style={[styles.restoreBtnText, { color: switching || !switchInput.includes('@') ? colors.mutedForeground : '#fff' }]}>
-                  {switching ? 'Restoring…' : 'Restore Data'}
-                </Text>
+              <Pressable onPress={handleSignOut} style={[styles.signOutBtn, { borderColor: colors.destructive }]}>
+                <Ionicons name="log-out-outline" size={18} color={colors.destructive} />
+                <Text style={[styles.signOutText, { color: colors.destructive }]}>Sign Out</Text>
               </Pressable>
             </View>
           </ScrollView>
@@ -437,19 +466,29 @@ const styles = StyleSheet.create({
   activeFilterChipText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   list: { paddingTop: 16, paddingBottom: 120, flexGrow: 1 },
   sectionHeader: { fontSize: 12, fontFamily: 'Inter_500Medium', letterSpacing: 0.6, textTransform: 'uppercase', paddingHorizontal: 20, marginBottom: 8 },
-  // First-launch setup screen
+  // Auth screen
   setupScreen: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 32, gap: 12,
   },
-  setupTitle: { color: '#fff', fontSize: 26, fontFamily: 'Inter_700Bold', textAlign: 'center', letterSpacing: -0.5 },
+  setupTitle: { color: '#fff', fontSize: 28, fontFamily: 'Inter_700Bold', textAlign: 'center', letterSpacing: -0.5 },
   setupSub: { color: 'rgba(255,255,255,0.75)', fontSize: 15, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 22, marginBottom: 8 },
+  authToggle: {
+    flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 20, padding: 3, width: '100%', marginBottom: 4,
+  },
+  authToggleBtn: { flex: 1, paddingVertical: 8, borderRadius: 18, alignItems: 'center' },
+  authToggleBtnActive: { backgroundColor: '#fff' },
+  authToggleText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: 'rgba(255,255,255,0.7)' },
+  authToggleTextActive: { color: '#1E3A5F', fontFamily: 'Inter_600SemiBold' },
   setupInput: {
     width: '100%', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
-    fontSize: 16, fontFamily: 'Inter_400Regular', textAlign: 'center',
+    fontSize: 16, fontFamily: 'Inter_400Regular',
   },
   setupBtn: { width: '100%', paddingVertical: 16, borderRadius: 14, alignItems: 'center', marginTop: 4 },
   setupBtnText: { fontSize: 16, fontFamily: 'Inter_700Bold' },
+  authError: { color: '#fca5a5', fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  authHint: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 18 },
   // Settings sheet
   settingsSheet: { flex: 1, marginTop: 60, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
   settingsHeader: {
@@ -471,6 +510,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11,
     fontSize: 15, fontFamily: 'Inter_400Regular', textAlign: 'center',
   },
-  restoreBtn: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  restoreBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  signOutBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 13, borderRadius: 12, borderWidth: 1.5,
+  },
+  signOutText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
 });

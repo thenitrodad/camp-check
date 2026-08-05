@@ -5,8 +5,15 @@ import type { Booking, Inspection, InventoryItem } from '@/types';
 const SUPABASE_URL = 'https://jtgfugikzitbxxjjfdfn.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable__ynRWcMXVbNcN0pjiHnrbA_4qz1jO5-';
 
+// Persist the Supabase session in AsyncStorage so the owner stays logged in
+// across app restarts and doesn't have to sign in every time.
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
+  auth: {
+    storage: AsyncStorage as any,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
 });
 
 export interface SyncPayload {
@@ -16,73 +23,74 @@ export interface SyncPayload {
   updatedAt: string;
 }
 
-// ─── Owner Email ─────────────────────────────────────────────────────────────
-// The owner's email is used as the Supabase row ID.
-// New phone → install app → enter email → data restored automatically.
+// ─── Auth ────────────────────────────────────────────────────────────────────
 
-const EMAIL_KEY = '@campcheck_owner_email';
-let _email: string | null = null;
-
-/** Returns the stored email, or null if not set yet. */
-export async function getOwnerEmail(): Promise<string | null> {
-  if (_email) return _email;
-  const stored = await AsyncStorage.getItem(EMAIL_KEY);
-  if (stored) { _email = stored; return _email; }
-  return null;
+export async function getSession() {
+  const { data } = await supabase.auth.getSession();
+  return data.session;
 }
 
-/** Save the owner's email and use it as the sync row going forward. */
-export async function setOwnerEmail(email: string): Promise<void> {
-  const normalized = email.trim().toLowerCase();
-  await AsyncStorage.setItem(EMAIL_KEY, normalized);
-  _email = normalized;
-
-  // Migrate old data from legacy 'main' row if this is a first-time setup
-  await _migrateFromLegacyRow(normalized);
+/** Create a new account. Migrates any existing data from old email-based rows. */
+export async function signUp(
+  email: string,
+  password: string,
+): Promise<{ error: string | null }> {
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) return { error: error.message };
+  // Migrate old data to the new UID row on first sign-up
+  if (data.user) await _migrateToUid(data.user.id, email.toLowerCase());
+  return { error: null };
 }
 
-/** Switch to a different email (restore on new phone). Returns the payload if found. */
-export async function switchToEmail(email: string): Promise<SyncPayload | null> {
-  const normalized = email.trim().toLowerCase();
-  try {
-    const { data, error } = await supabase
-      .from('campcheck_sync')
-      .select('data')
-      .eq('id', normalized)
-      .single();
-    if (error || !data) return null;
-    await AsyncStorage.setItem(EMAIL_KEY, normalized);
-    _email = normalized;
-    return data.data as SyncPayload;
-  } catch {
-    return null;
-  }
+/** Sign in with email + password. */
+export async function signIn(
+  email: string,
+  password: string,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) return { error: error.message };
+  return { error: null };
 }
 
-async function _migrateFromLegacyRow(newId: string): Promise<void> {
-  try {
-    const { data } = await supabase
-      .from('campcheck_sync')
-      .select('data')
-      .eq('id', 'main')
-      .single();
-    if (data?.data) {
-      await supabase
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut();
+}
+
+async function _getUid(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user.id ?? null;
+}
+
+/** On first sign-up, copy old email/main row into the new UID row so data isn't lost. */
+async function _migrateToUid(uid: string, email: string): Promise<void> {
+  for (const legacyId of [email, 'main']) {
+    try {
+      const { data } = await supabase
         .from('campcheck_sync')
-        .upsert({ id: newId, data: data.data, updated_at: new Date().toISOString() });
-    }
-  } catch { /* ignore */ }
+        .select('data')
+        .eq('id', legacyId)
+        .single();
+      if (data?.data) {
+        await supabase.from('campcheck_sync').upsert({
+          id: uid,
+          data: data.data,
+          updated_at: new Date().toISOString(),
+        });
+        return;
+      }
+    } catch { /* ignore */ }
+  }
 }
 
 // ─── Sync ────────────────────────────────────────────────────────────────────
 
 export async function pushToCloud(payload: SyncPayload): Promise<void> {
   try {
-    const email = await getOwnerEmail();
-    if (!email) return; // don't sync until email is set
+    const uid = await _getUid();
+    if (!uid) return; // not signed in yet
     const { error } = await supabase
       .from('campcheck_sync')
-      .upsert({ id: email, data: payload, updated_at: payload.updatedAt });
+      .upsert({ id: uid, data: payload, updated_at: payload.updatedAt });
     if (error) console.log('[Supabase] push error:', error.message);
   } catch {
     console.log('[Supabase] push failed (offline?)');
@@ -91,12 +99,12 @@ export async function pushToCloud(payload: SyncPayload): Promise<void> {
 
 export async function pullFromCloud(): Promise<SyncPayload | null> {
   try {
-    const email = await getOwnerEmail();
-    if (!email) return null;
+    const uid = await _getUid();
+    if (!uid) return null;
     const { data, error } = await supabase
       .from('campcheck_sync')
       .select('data')
-      .eq('id', email)
+      .eq('id', uid)
       .single();
     if (!error && data) return data.data as SyncPayload;
     return null;
