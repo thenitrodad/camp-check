@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert, FlatList, KeyboardAvoidingView, Modal,
   Platform, Pressable, ScrollView, StyleSheet,
   Switch, Text, TextInput, View,
@@ -7,8 +8,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { useColors } from '@/hooks/useColors';
 import { useBookings } from '@/context/BookingsContext';
+import { parseBookingImage } from '@/lib/parseBookingImage';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const TIME_OPTIONS = [
@@ -100,6 +103,93 @@ export default function BookingFormScreen() {
   const [rvName, setRvName] = useState(existing?.rvName ?? 'Luxury Family Bunkhouse Camper');
 
   const [timePicker, setTimePicker] = useState<'in' | 'out' | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  // ─── Screenshot import ────────────────────────────────────────────────────
+  const handleImportScreenshot = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Request permission
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permission Needed',
+        'Please allow access to your photo library to import a booking screenshot.',
+      );
+      return;
+    }
+
+    // Pick image
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    if (!asset.base64) {
+      Alert.alert('Error', 'Could not read the image. Please try again.');
+      return;
+    }
+
+    setImporting(true);
+    try {
+      // Determine MIME type from URI extension
+      const ext = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+
+      const parsed = await parseBookingImage(asset.base64, mimeType);
+
+      // Pre-fill form fields from parsed data
+      let filled = 0;
+
+      if (parsed.guestName) { setGuestName(parsed.guestName); filled++; }
+      if (parsed.checkIn) { setCheckInDisplay(isoToDisplay(parsed.checkIn)); filled++; }
+      if (parsed.checkOut) { setCheckOutDisplay(isoToDisplay(parsed.checkOut)); filled++; }
+
+      // Build notes from platform + amount + any extra notes
+      const noteParts: string[] = [];
+      if (parsed.platform && parsed.platform !== 'Unknown') {
+        noteParts.push(`Platform: ${parsed.platform}`);
+      }
+      if (parsed.amount && parsed.amount > 0) {
+        noteParts.push(`Amount: $${parsed.amount.toFixed(2)}`);
+      }
+      if (parsed.notes) {
+        noteParts.push(parsed.notes);
+      }
+      if (noteParts.length > 0) {
+        setNotes(noteParts.join(' · '));
+        filled++;
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      if (filled === 0) {
+        Alert.alert(
+          'Nothing Detected',
+          'The AI could not extract booking details from this image. Make sure the screenshot clearly shows the guest name and dates.',
+        );
+      } else {
+        Alert.alert(
+          'Booking Imported ✓',
+          `${filled} field${filled !== 1 ? 's' : ''} filled in. Review the details and tap Save.`,
+        );
+      }
+    } catch (err) {
+      console.error('[ImportScreenshot]', err);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        'Import Failed',
+        'Could not analyze the image. Please check your connection and try again, or enter the details manually.',
+      );
+    } finally {
+      setImporting(false);
+    }
+  }, []);
 
   const handleSave = useCallback(() => {
     if (!guestName.trim()) {
@@ -131,8 +221,8 @@ export default function BookingFormScreen() {
       checkOutTime,
       adults,
       children,
-      campground: isDelivery ? 'TBD — Delivery' : (campground.trim() || 'TBD'),
-      lotNumber: isDelivery ? '' : lotNumber.trim(),
+      campground: campground.trim() || 'TBD',
+      lotNumber: lotNumber.trim(),
       deliveryAddress: isDelivery ? deliveryAddress.trim() : '',
       notes: notes.trim(),
       rvName: rvName.trim() || 'Luxury Family Bunkhouse Camper',
@@ -172,6 +262,30 @@ export default function BookingFormScreen() {
             <Text style={styles.saveBtnText}>Save</Text>
           </Pressable>
         </View>
+
+        {/* ── Import from Screenshot ── */}
+        {!isEdit && (
+          <Pressable
+            onPress={handleImportScreenshot}
+            disabled={importing}
+            style={({ pressed }) => [
+              styles.importBtn,
+              { backgroundColor: colors.primary + '12', borderColor: colors.primary + '40', opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
+            {importing ? (
+              <>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[styles.importBtnText, { color: colors.primary }]}>Analyzing screenshot…</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="scan-outline" size={18} color={colors.primary} />
+                <Text style={[styles.importBtnText, { color: colors.primary }]}>Import Booking from Screenshot</Text>
+              </>
+            )}
+          </Pressable>
+        )}
 
         {/* ── Guest Info ── */}
         <SectionHeader title="Guest Info" colors={colors} />
@@ -239,23 +353,20 @@ export default function BookingFormScreen() {
               thumbColor="#fff"
             />
           </Field>
-          {isDelivery ? (
+          {isDelivery && (
             <Field label="Delivery Address" colors={colors}>
               <TextInput style={[inputStyle, { flex: 1 }]} value={deliveryAddress} onChangeText={setDeliveryAddress}
                 placeholder="123 Main St, City, State" placeholderTextColor={colors.mutedForeground} multiline />
             </Field>
-          ) : (
-            <>
-              <Field label="Campground" colors={colors}>
-                <TextInput style={inputStyle} value={campground} onChangeText={setCampground}
-                  placeholder="Campground name" placeholderTextColor={colors.mutedForeground} />
-              </Field>
-              <Field label="Lot Number" colors={colors}>
-                <TextInput style={inputStyle} value={lotNumber} onChangeText={setLotNumber}
-                  placeholder="e.g. 42" placeholderTextColor={colors.mutedForeground} keyboardType="number-pad" />
-              </Field>
-            </>
           )}
+          <Field label="Campground" colors={colors}>
+            <TextInput style={inputStyle} value={campground} onChangeText={setCampground}
+              placeholder="Campground name" placeholderTextColor={colors.mutedForeground} />
+          </Field>
+          <Field label="Lot Number" colors={colors}>
+            <TextInput style={inputStyle} value={lotNumber} onChangeText={setLotNumber}
+              placeholder="e.g. 42" placeholderTextColor={colors.mutedForeground} keyboardType="number-pad" />
+          </Field>
         </View>
 
         {/* ── RV ── */}
@@ -356,6 +467,22 @@ const styles = StyleSheet.create({
   pageTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', flex: 2, textAlign: 'center' },
   saveBtn: { flex: 1, alignItems: 'flex-end', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
   saveBtnText: { color: '#fff', fontSize: 15, fontFamily: 'Inter_600SemiBold' },
+  importBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 4,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  importBtnText: {
+    fontSize: 15,
+    fontFamily: 'Inter_600SemiBold',
+  },
   sectionHeader: {
     fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.8,
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 6,
