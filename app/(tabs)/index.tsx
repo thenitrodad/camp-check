@@ -37,7 +37,7 @@ const FILTER_LABELS: Record<Filter, string> = {
   all: 'All',
   active: 'Active Rentals',
   pending: 'Pending Inspection',
-  past: 'Completed',
+  past: 'Completed Bookings',
 };
 
 export default function DashboardScreen() {
