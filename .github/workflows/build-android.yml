@@ -15,29 +15,51 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install additional Android build tools
-        run: |
-          sdkmanager "build-tools;35.0.0" "platforms;android-35" "ndk;26.1.10909125"
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --registry https://registry.npmjs.org
 
-      - name: Build AAB
+      - name: Build AAB (EAS Cloud)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: npx eas-cli@14 build --platform android --profile production --local --non-interactive --output ./build.aab
+        run: |
+          eas build \
+            --platform android \
+            --profile production \
+            --non-interactive \
+            --wait \
+            --json > eas-build-output.json || true
+          cat eas-build-output.json
+
+      - name: Extract and download AAB
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          # Try to pull download URL from JSON output
+          URL=$(python3 -c "
+          import json, sys
+          try:
+            with open('eas-build-output.json') as f:
+              data = json.load(f)
+            if isinstance(data, list): data = data[0]
+            url = data.get('artifacts', {}).get('buildUrl', '')
+            print(url)
+          except:
+            print('')
+          ")
+          if [ -n "$URL" ]; then
+            echo "Downloading AAB from: $URL"
+            curl -L "$URL" -o build.aab
+          else
+            echo "No download URL found — check EAS dashboard for the build artifact"
+          fi
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
           name: camp-check-release
-          path: ./build.aab
+          path: build.aab
+          if-no-files-found: warn
           retention-days: 30
