@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "CampCheck",
+    "slug": "camp-check",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon-new.png",
+    "scheme": "camp-check",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1E3A5F"
+    },
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.campcheck.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon-new.png",
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "cc2719bb-3d56-4f99-8379-6b028732d443"
+      }
+    },
+    "owner": "campcheck"
+  }
+}
