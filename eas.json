@@ -12,7 +12,7 @@
     },
     "production": {
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://c0f80e08-fc8e-43a7-9911-e6244095cc95-00-orn7y4gwchk2.spock.replit.dev"
+        "EXPO_PUBLIC_API_URL": "https://camp-check-owner.replit.app"
       }
     }
   },
