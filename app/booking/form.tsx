@@ -74,20 +74,21 @@ const stepStyles = StyleSheet.create({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function BookingFormScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, prefillName, prefillCheckIn, prefillCheckOut, prefillNotes } =
+    useLocalSearchParams<{ id?: string; prefillName?: string; prefillCheckIn?: string; prefillCheckOut?: string; prefillNotes?: string }>();
   const colors = useColors();
   const { getBooking, addBooking, updateBooking } = useBookings();
 
   const existing = id ? getBooking(id) : undefined;
   const isEdit = !!existing;
 
-  // Form state
-  const [guestName, setGuestName] = useState(existing?.guestName ?? '');
+  // Form state — prefill params override defaults for new bookings
+  const [guestName, setGuestName] = useState(existing?.guestName ?? prefillName ?? '');
   const [phone, setPhone] = useState(existing?.phone ?? '');
   const [email, setEmail] = useState(existing?.email ?? '');
-  const [checkInDisplay, setCheckInDisplay] = useState(isoToDisplay(existing?.checkIn ?? ''));
+  const [checkInDisplay, setCheckInDisplay] = useState(isoToDisplay(existing?.checkIn ?? '') || (prefillCheckIn ?? ''));
   const [checkInTime, setCheckInTime] = useState(existing?.checkInTime ?? '3:00 PM');
-  const [checkOutDisplay, setCheckOutDisplay] = useState(isoToDisplay(existing?.checkOut ?? ''));
+  const [checkOutDisplay, setCheckOutDisplay] = useState(isoToDisplay(existing?.checkOut ?? '') || (prefillCheckOut ?? ''));
   const [checkOutTime, setCheckOutTime] = useState(existing?.checkOutTime ?? '11:00 AM');
   const [adults, setAdults] = useState(existing?.adults ?? 2);
   const [children, setChildren] = useState(existing?.children ?? 0);
@@ -95,7 +96,7 @@ export default function BookingFormScreen() {
   const [deliveryAddress, setDeliveryAddress] = useState(existing?.deliveryAddress ?? '');
   const [campground, setCampground] = useState(existing?.campground ?? '');
   const [lotNumber, setLotNumber] = useState(existing?.lotNumber ?? '');
-  const [notes, setNotes] = useState(existing?.notes ?? '');
+  const [notes, setNotes] = useState(existing?.notes ?? prefillNotes ?? '');
   const [rvName, setRvName] = useState(existing?.rvName ?? 'Luxury Family Bunkhouse Camper');
 
   const [timePicker, setTimePicker] = useState<'in' | 'out' | null>(null);

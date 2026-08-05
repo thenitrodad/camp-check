@@ -17,6 +17,7 @@ import { useColors } from '@/hooks/useColors';
 import { useBookings } from '@/context/BookingsContext';
 import BookingCard from '@/components/BookingCard';
 import EmptyState from '@/components/EmptyState';
+import ImportBookingModal from '@/components/ImportBookingModal';
 import type { Booking } from '@/types';
 
 function todayISO() {
@@ -44,6 +45,7 @@ export default function DashboardScreen() {
   const { bookings } = useBookings();
   const [filter, setFilter] = useState<Filter>('today');
   const [refreshing, setRefreshing] = useState(false);
+  const [importVisible, setImportVisible] = useState(false);
   const listRef = useRef<FlatList>(null);
 
   const today = todayISO();
@@ -110,12 +112,20 @@ export default function DashboardScreen() {
             <Text style={styles.greeting}>Welcome back</Text>
             <Text style={styles.headerTitle}>CampCheck</Text>
           </View>
-          <Pressable
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/booking/form'); }}
-            style={[styles.addBtn, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
-          >
-            <Ionicons name="add" size={22} color="#fff" />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setImportVisible(true); }}
+              style={[styles.addBtn, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
+            >
+              <Ionicons name="scan-outline" size={20} color="#fff" />
+            </Pressable>
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/booking/form'); }}
+              style={[styles.addBtn, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
+            >
+              <Ionicons name="add" size={22} color="#fff" />
+            </Pressable>
+          </View>
         </View>
 
         <Text style={styles.dateText}>{formatDate(today)}</Text>
@@ -192,6 +202,8 @@ export default function DashboardScreen() {
           ))}
         </View>
       )}
+
+      <ImportBookingModal visible={importVisible} onClose={() => setImportVisible(false)} />
 
       {/* Booking List */}
       <FlatList
