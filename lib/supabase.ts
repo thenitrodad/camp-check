@@ -16,47 +16,34 @@ export interface SyncPayload {
   updatedAt: string;
 }
 
-// ─── Recovery Key ────────────────────────────────────────────────────────────
-// A short code the owner writes down once. Entering it on a new phone
-// restores all their data from Supabase. Stored locally + used as the row ID.
+// ─── Owner Email ─────────────────────────────────────────────────────────────
+// The owner's email is used as the Supabase row ID.
+// New phone → install app → enter email → data restored automatically.
 
-const RECOVERY_KEY_STORAGE = '@campcheck_recovery_key';
-let _recoveryKey: string | null = null;
+const EMAIL_KEY = '@campcheck_owner_email';
+let _email: string | null = null;
 
-function generateKey(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I ambiguity
-  let key = '';
-  for (let i = 0; i < 8; i++) {
-    if (i === 4) key += '-';
-    key += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return key; // e.g. "CAMP-7X2K"
+/** Returns the stored email, or null if not set yet. */
+export async function getOwnerEmail(): Promise<string | null> {
+  if (_email) return _email;
+  const stored = await AsyncStorage.getItem(EMAIL_KEY);
+  if (stored) { _email = stored; return _email; }
+  return null;
 }
 
-/** Returns the owner's recovery key, generating one on first use. */
-export async function getRecoveryKey(): Promise<string> {
-  if (_recoveryKey) return _recoveryKey;
+/** Save the owner's email and use it as the sync row going forward. */
+export async function setOwnerEmail(email: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  await AsyncStorage.setItem(EMAIL_KEY, normalized);
+  _email = normalized;
 
-  const stored = await AsyncStorage.getItem(RECOVERY_KEY_STORAGE);
-  if (stored) {
-    _recoveryKey = stored;
-    return _recoveryKey;
-  }
-
-  // First time: generate a new key and migrate any existing device data
-  const newKey = generateKey();
-  await AsyncStorage.setItem(RECOVERY_KEY_STORAGE, newKey);
-  _recoveryKey = newKey;
-
-  // Try to migrate old device-ID-based data to the new key
-  await _migrateFromLegacyRow(newKey);
-
-  return _recoveryKey;
+  // Migrate old data from legacy 'main' row if this is a first-time setup
+  await _migrateFromLegacyRow(normalized);
 }
 
-/** Restore from a key the owner typed in. Returns the payload if found. */
-export async function restoreFromKey(key: string): Promise<SyncPayload | null> {
-  const normalized = key.trim().toUpperCase();
+/** Switch to a different email (restore on new phone). Returns the payload if found. */
+export async function switchToEmail(email: string): Promise<SyncPayload | null> {
+  const normalized = email.trim().toLowerCase();
   try {
     const { data, error } = await supabase
       .from('campcheck_sync')
@@ -64,43 +51,38 @@ export async function restoreFromKey(key: string): Promise<SyncPayload | null> {
       .eq('id', normalized)
       .single();
     if (error || !data) return null;
-    // Save this key locally going forward
-    await AsyncStorage.setItem(RECOVERY_KEY_STORAGE, normalized);
-    _recoveryKey = normalized;
+    await AsyncStorage.setItem(EMAIL_KEY, normalized);
+    _email = normalized;
     return data.data as SyncPayload;
   } catch {
     return null;
   }
 }
 
-async function _migrateFromLegacyRow(newKey: string): Promise<void> {
-  // Check old 'main' row (earliest version of the app)
-  const legacyIds = ['main'];
-  for (const legacyId of legacyIds) {
-    try {
-      const { data } = await supabase
+async function _migrateFromLegacyRow(newId: string): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from('campcheck_sync')
+      .select('data')
+      .eq('id', 'main')
+      .single();
+    if (data?.data) {
+      await supabase
         .from('campcheck_sync')
-        .select('data')
-        .eq('id', legacyId)
-        .single();
-      if (data?.data) {
-        await supabase
-          .from('campcheck_sync')
-          .upsert({ id: newKey, data: data.data, updated_at: new Date().toISOString() });
-        return;
-      }
-    } catch { /* ignore */ }
-  }
+        .upsert({ id: newId, data: data.data, updated_at: new Date().toISOString() });
+    }
+  } catch { /* ignore */ }
 }
 
 // ─── Sync ────────────────────────────────────────────────────────────────────
 
 export async function pushToCloud(payload: SyncPayload): Promise<void> {
   try {
-    const key = await getRecoveryKey();
+    const email = await getOwnerEmail();
+    if (!email) return; // don't sync until email is set
     const { error } = await supabase
       .from('campcheck_sync')
-      .upsert({ id: key, data: payload, updated_at: payload.updatedAt });
+      .upsert({ id: email, data: payload, updated_at: payload.updatedAt });
     if (error) console.log('[Supabase] push error:', error.message);
   } catch {
     console.log('[Supabase] push failed (offline?)');
@@ -109,11 +91,12 @@ export async function pushToCloud(payload: SyncPayload): Promise<void> {
 
 export async function pullFromCloud(): Promise<SyncPayload | null> {
   try {
-    const key = await getRecoveryKey();
+    const email = await getOwnerEmail();
+    if (!email) return null;
     const { data, error } = await supabase
       .from('campcheck_sync')
       .select('data')
-      .eq('id', key)
+      .eq('id', email)
       .single();
     if (!error && data) return data.data as SyncPayload;
     return null;

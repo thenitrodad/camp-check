@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  Clipboard,
   FlatList,
   Modal,
   Platform,
@@ -23,7 +22,7 @@ import { useBookings } from '@/context/BookingsContext';
 import BookingCard from '@/components/BookingCard';
 import EmptyState from '@/components/EmptyState';
 import ImportBookingModal from '@/components/ImportBookingModal';
-import { getRecoveryKey, restoreFromKey } from '@/lib/supabase';
+import { getOwnerEmail, setOwnerEmail, switchToEmail } from '@/lib/supabase';
 import type { Booking } from '@/types';
 
 function todayISO() {
@@ -54,35 +53,50 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [importVisible, setImportVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [recoveryKey, setRecoveryKey] = useState('');
-  const [restoreInput, setRestoreInput] = useState('');
-  const [restoring, setRestoring] = useState(false);
+  const [ownerEmail, setOwnerEmailState] = useState('');
+  const [setupVisible, setSetupVisible] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [switchInput, setSwitchInput] = useState('');
+  const [switching, setSwitching] = useState(false);
+  const [saving, setSaving] = useState(false);
   const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
-    getRecoveryKey().then(setRecoveryKey);
+    getOwnerEmail().then(email => {
+      if (email) {
+        setOwnerEmailState(email);
+      } else {
+        setSetupVisible(true); // first launch — ask for email
+      }
+    });
   }, []);
 
-  const handleCopyKey = () => {
-    Clipboard.setString(recoveryKey);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert('Copied!', 'Your recovery key has been copied to the clipboard.');
+  const handleSaveEmail = async () => {
+    const trimmed = emailInput.trim().toLowerCase();
+    if (!trimmed.includes('@')) return;
+    setSaving(true);
+    await setOwnerEmail(trimmed);
+    setSaving(false);
+    setOwnerEmailState(trimmed);
+    setSetupVisible(false);
+    setEmailInput('');
   };
 
-  const handleRestore = async () => {
-    if (!restoreInput.trim()) return;
-    setRestoring(true);
-    const payload = await restoreFromKey(restoreInput.trim());
-    setRestoring(false);
+  const handleSwitch = async () => {
+    const trimmed = switchInput.trim().toLowerCase();
+    if (!trimmed.includes('@')) return;
+    setSwitching(true);
+    const payload = await switchToEmail(trimmed);
+    setSwitching(false);
     if (payload) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Restored!', 'Your data has been restored. Restart the app to see all your bookings.', [
+      setOwnerEmailState(trimmed);
+      setSwitchInput('');
+      Alert.alert('Restored!', 'Your data has been restored. Restart the app to see your bookings.', [
         { text: 'OK', onPress: () => setSettingsVisible(false) },
       ]);
-      setRecoveryKey(restoreInput.trim().toUpperCase());
-      setRestoreInput('');
     } else {
-      Alert.alert('Not Found', 'No data found for that key. Check the code and try again.');
+      Alert.alert('Not Found', 'No data found for that email. Make sure you use the same email from your old device.');
     }
   };
 
@@ -258,7 +272,38 @@ export default function DashboardScreen() {
 
       <ImportBookingModal visible={importVisible} onClose={() => setImportVisible(false)} />
 
-      {/* Settings / Recovery Key Sheet */}
+      {/* First-launch email setup — blocks until email is entered */}
+      <Modal visible={setupVisible} transparent={false} animationType="fade">
+        <View style={[styles.setupScreen, { backgroundColor: colors.primary }]}>
+          <Ionicons name="shield-checkmark-outline" size={56} color="#fff" style={{ marginBottom: 16 }} />
+          <Text style={styles.setupTitle}>Welcome to CampCheck</Text>
+          <Text style={styles.setupSub}>
+            Enter your email to secure your bookings and photos. You'll use it to restore everything on a new phone — no passwords, no account needed.
+          </Text>
+          <TextInput
+            style={[styles.setupInput, { backgroundColor: '#fff', color: colors.primary }]}
+            value={emailInput}
+            onChangeText={setEmailInput}
+            placeholder="your@email.com"
+            placeholderTextColor={colors.mutedForeground}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoFocus
+          />
+          <Pressable
+            onPress={handleSaveEmail}
+            disabled={saving || !emailInput.includes('@')}
+            style={[styles.setupBtn, { backgroundColor: saving || !emailInput.includes('@') ? 'rgba(255,255,255,0.3)' : '#fff' }]}
+          >
+            <Text style={[styles.setupBtnText, { color: colors.primary }]}>
+              {saving ? 'Saving…' : 'Get Started'}
+            </Text>
+          </Pressable>
+        </View>
+      </Modal>
+
+      {/* Settings Sheet */}
       <Modal visible={settingsVisible} transparent animationType="slide" onRequestClose={() => setSettingsVisible(false)}>
         <View style={[styles.settingsSheet, { backgroundColor: colors.background }]}>
           <View style={[styles.settingsHeader, { borderBottomColor: colors.border, backgroundColor: colors.card }]}>
@@ -269,51 +314,47 @@ export default function DashboardScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.settingsBody} showsVerticalScrollIndicator={false}>
-            {/* Recovery key */}
+            {/* Current email */}
             <View style={[styles.settingsCard, { backgroundColor: colors.card }]}>
               <View style={styles.settingsCardHeader}>
-                <Ionicons name="key-outline" size={20} color={colors.primary} />
-                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Your Recovery Key</Text>
+                <Ionicons name="mail-outline" size={20} color={colors.primary} />
+                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Backup Email</Text>
               </View>
               <Text style={[styles.settingsCardSub, { color: colors.mutedForeground }]}>
-                Write this down or save it somewhere safe. If you lose or replace your phone, entering this key restores all your bookings and photos.
+                Your data is backed up under this email. On a new phone, just enter it to restore everything.
               </Text>
-
-              <Pressable
-                onPress={handleCopyKey}
-                style={[styles.keyBox, { backgroundColor: colors.muted, borderColor: colors.border }]}
-              >
-                <Text style={[styles.keyText, { color: colors.primary }]}>{recoveryKey || '…'}</Text>
-                <Ionicons name="copy-outline" size={18} color={colors.mutedForeground} />
-              </Pressable>
-              <Text style={[styles.keyHint, { color: colors.mutedForeground }]}>Tap to copy</Text>
+              <View style={[styles.emailDisplay, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+                <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                <Text style={[styles.emailText, { color: colors.foreground }]}>{ownerEmail}</Text>
+              </View>
             </View>
 
-            {/* Restore from key */}
+            {/* Restore / switch email */}
             <View style={[styles.settingsCard, { backgroundColor: colors.card }]}>
               <View style={styles.settingsCardHeader}>
                 <Ionicons name="cloud-download-outline" size={20} color={colors.accent} />
-                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Restore on New Device</Text>
+                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Restore from Another Device</Text>
               </View>
               <Text style={[styles.settingsCardSub, { color: colors.mutedForeground }]}>
-                Got a new phone? Enter your recovery key from your old device to pull all your data back.
+                Enter a different email to restore bookings and photos from another device.
               </Text>
               <TextInput
                 style={[styles.restoreInput, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.muted }]}
-                value={restoreInput}
-                onChangeText={setRestoreInput}
-                placeholder="e.g. CAMP-7X2K"
+                value={switchInput}
+                onChangeText={setSwitchInput}
+                placeholder="other@email.com"
                 placeholderTextColor={colors.mutedForeground}
-                autoCapitalize="characters"
+                keyboardType="email-address"
+                autoCapitalize="none"
                 autoCorrect={false}
               />
               <Pressable
-                onPress={handleRestore}
-                disabled={restoring || !restoreInput.trim()}
-                style={[styles.restoreBtn, { backgroundColor: restoring || !restoreInput.trim() ? colors.muted : colors.accent }]}
+                onPress={handleSwitch}
+                disabled={switching || !switchInput.includes('@')}
+                style={[styles.restoreBtn, { backgroundColor: switching || !switchInput.includes('@') ? colors.muted : colors.accent }]}
               >
-                <Text style={[styles.restoreBtnText, { color: restoring || !restoreInput.trim() ? colors.mutedForeground : '#fff' }]}>
-                  {restoring ? 'Restoring…' : 'Restore Data'}
+                <Text style={[styles.restoreBtnText, { color: switching || !switchInput.includes('@') ? colors.mutedForeground : '#fff' }]}>
+                  {switching ? 'Restoring…' : 'Restore Data'}
                 </Text>
               </Pressable>
             </View>
@@ -396,6 +437,19 @@ const styles = StyleSheet.create({
   activeFilterChipText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   list: { paddingTop: 16, paddingBottom: 120, flexGrow: 1 },
   sectionHeader: { fontSize: 12, fontFamily: 'Inter_500Medium', letterSpacing: 0.6, textTransform: 'uppercase', paddingHorizontal: 20, marginBottom: 8 },
+  // First-launch setup screen
+  setupScreen: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 32, gap: 12,
+  },
+  setupTitle: { color: '#fff', fontSize: 26, fontFamily: 'Inter_700Bold', textAlign: 'center', letterSpacing: -0.5 },
+  setupSub: { color: 'rgba(255,255,255,0.75)', fontSize: 15, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 22, marginBottom: 8 },
+  setupInput: {
+    width: '100%', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
+    fontSize: 16, fontFamily: 'Inter_400Regular', textAlign: 'center',
+  },
+  setupBtn: { width: '100%', paddingVertical: 16, borderRadius: 14, alignItems: 'center', marginTop: 4 },
+  setupBtnText: { fontSize: 16, fontFamily: 'Inter_700Bold' },
   // Settings sheet
   settingsSheet: { flex: 1, marginTop: 60, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
   settingsHeader: {
@@ -408,15 +462,14 @@ const styles = StyleSheet.create({
   settingsCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   settingsCardTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold' },
   settingsCardSub: { fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 18 },
-  keyBox: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+  emailDisplay: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
   },
-  keyText: { fontSize: 22, fontFamily: 'Inter_700Bold', letterSpacing: 2 },
-  keyHint: { fontSize: 11, fontFamily: 'Inter_400Regular', textAlign: 'center', marginTop: -4 },
+  emailText: { fontSize: 15, fontFamily: 'Inter_500Medium', flex: 1 },
   restoreInput: {
     borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11,
-    fontSize: 18, fontFamily: 'Inter_600SemiBold', letterSpacing: 2, textAlign: 'center',
+    fontSize: 15, fontFamily: 'Inter_400Regular', textAlign: 'center',
   },
   restoreBtn: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   restoreBtnText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
