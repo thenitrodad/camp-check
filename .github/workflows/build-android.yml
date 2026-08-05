@@ -25,35 +25,24 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          eas build \
+          BUILD_URL=$(eas build \
             --platform android \
             --profile production \
             --non-interactive \
             --wait \
-            --json > eas-build-output.json || true
-          cat eas-build-output.json
-
-      - name: Extract and download AAB
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          # Try to pull download URL from JSON output
-          URL=$(python3 -c "
+            --json 2>/dev/null | python3 -c "
           import json, sys
-          try:
-            with open('eas-build-output.json') as f:
-              data = json.load(f)
-            if isinstance(data, list): data = data[0]
-            url = data.get('artifacts', {}).get('buildUrl', '')
-            print(url)
-          except:
-            print('')
+          data = json.load(sys.stdin)
+          if isinstance(data, list): data = data[0]
+          print(data.get('artifacts', {}).get('buildUrl', ''))
           ")
-          if [ -n "$URL" ]; then
-            echo "Downloading AAB from: $URL"
-            curl -L "$URL" -o build.aab
+          echo "Build URL: $BUILD_URL"
+          if [ -n "$BUILD_URL" ]; then
+            curl -L "$BUILD_URL" -o build.aab
+            echo "Downloaded build.aab"
           else
-            echo "No download URL found — check EAS dashboard for the build artifact"
+            echo "No build URL returned – check expo.dev/accounts/campcheck/projects/camp-check/builds"
+            exit 1
           fi
 
       - name: Upload AAB artifact
@@ -61,5 +50,4 @@ jobs:
         with:
           name: camp-check-release
           path: build.aab
-          if-no-files-found: warn
           retention-days: 30
