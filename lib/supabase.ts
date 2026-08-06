@@ -8,12 +8,17 @@ const SUPABASE_ANON_KEY = 'sb_publishable__ynRWcMXVbNcN0pjiHnrbA_4qz1jO5-';
 
 // Persist the Supabase session in AsyncStorage so the owner stays logged in
 // across app restarts and doesn't have to sign in every time.
+// Realtime is disabled — CampCheck doesn't use live subscriptions, and the
+// WebSocket connection can crash React Native during cold-start.
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: AsyncStorage as any,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+  },
+  realtime: {
+    params: { eventsPerSecond: 0 },
   },
 });
 
