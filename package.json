@@ -1,5 +1,5 @@
 {
-  "name": "@workspace/camp-check",
+  "name": "camp-check",
   "version": "0.0.0",
   "private": true,
   "main": "expo-router/entry",

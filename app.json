@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.campcheck.app",
-      "versionCode": 18,
+      "versionCode": 19,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon-new.png",
         "backgroundColor": "#FFFFFF"

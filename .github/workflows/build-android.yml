@@ -1,34 +1,45 @@
-name: Build Android AAB
+# .github/workflows/build-android.yml
+#
+# This file lives in scripts/build-android.yml inside the Replit workspace
+# and is automatically copied into .github/workflows/ of the EAS build repo
+# by scripts/sync-eas.sh. Edit it here, not in the EAS repo directly.
+#
+# Trigger: any push to main in the EAS build repo starts a cloud EAS build.
+# The AAB is available at expo.dev → Projects → camp-check → Builds once done.
+
+name: Build Android
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build:
+    name: EAS Android build
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'
-
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --registry https://registry.npmjs.org
+        run: npm install
 
-      - name: Build AAB (EAS Cloud)
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          eas build \
-            --platform android \
-            --profile production \
-            --non-interactive \
-            --no-wait
-          echo "Build submitted to EAS. Download the AAB from:"
-          echo "https://expo.dev/accounts/campcheck/projects/camp-check/builds"
+      - name: Set up EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build Android (EAS cloud)
+        # --no-wait   exits immediately; download the AAB from expo.dev when ready
+        # --non-interactive  required in CI (no interactive prompts)
+        run: eas build --platform android --profile production --non-interactive --no-wait
