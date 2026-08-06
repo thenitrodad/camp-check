@@ -48,7 +48,7 @@ const FILTER_LABELS: Record<Filter, string> = {
 export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { bookings } = useBookings();
+  const { bookings, clearLocalData } = useBookings();
   const [filter, setFilter] = useState<Filter>('today');
   const [refreshing, setRefreshing] = useState(false);
   const [importVisible, setImportVisible] = useState(false);
@@ -105,6 +105,7 @@ export default function DashboardScreen() {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Sign Out', style: 'destructive', onPress: async () => {
+          await clearLocalData();
           await signOut();
           setSessionEmail('');
           setSettingsVisible(false);

@@ -1,7 +1,19 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Booking, BookingPhoto, Inspection, InspectionSection, InventoryItem, ItemStatus } from '@/types';
-import { pushToCloud, pullFromCloud } from '@/lib/supabase';
+import { pushToCloud, pullFromCloud, getSession } from '@/lib/supabase';
+
+const LOCAL_KEYS = [
+  'campcheck_bookings',
+  'campcheck_inspections',
+  'campcheck_inventory',
+  'campcheck_inventory_template',
+  'campcheck_uid',
+] as const;
+
+async function wipeLocalData() {
+  await AsyncStorage.multiRemove([...LOCAL_KEYS]);
+}
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 function isoFromNow(offsetDays: number): string {
@@ -145,6 +157,7 @@ interface BookingsContextValue {
   inspections: Record<string, Inspection>;
   inventory: Record<string, InventoryItem[]>;
   inventoryTemplate: InventoryItem[];
+  clearLocalData: () => Promise<void>;
   getBooking: (id: string) => Booking | undefined;
   getInspection: (bookingId: string) => Inspection;
   addTemplateItem: (name: string, quantity: number) => void;
@@ -183,6 +196,20 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
   // ── Load local then merge from cloud ────────────────────────────────────────
   useEffect(() => {
     (async () => {
+      // 0. Check if the signed-in user matches what's cached locally.
+      //    If not (different account or fresh sign-in), wipe local data first
+      //    so no user ever sees another user's bookings.
+      const session = await getSession();
+      const currentUid = session?.user.id ?? null;
+      const storedUid = await AsyncStorage.getItem('campcheck_uid');
+
+      if (currentUid && storedUid && currentUid !== storedUid) {
+        await wipeLocalData();
+      }
+      if (currentUid) {
+        await AsyncStorage.setItem('campcheck_uid', currentUid);
+      }
+
       // 1. Load from AsyncStorage first (instant)
       const [rawB, rawI, rawInv, rawTpl] = await Promise.all([
         AsyncStorage.getItem('campcheck_bookings'),
@@ -221,8 +248,13 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
         setBookings(localBookings);
         setInspections(localInspections);
         setInventory(localInventory);
+      } else if (currentUid) {
+        // Authenticated but no data anywhere — start fresh (no sample bookings)
+        setBookings([]);
+        setInspections({});
+        setInventory({});
       }
-      // else: keep sample data that was set on init
+      // else: no auth yet, keep sample data so the screen isn't empty
 
       initialized.current = true;
     })();
@@ -367,9 +399,19 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     return all.length === 0 ? 0 : all.filter(i => i.checked).length / all.length;
   }, [inspections]);
 
+  const clearLocalData = useCallback(async () => {
+    await wipeLocalData();
+    setBookings([]);
+    setInspections({});
+    setInventory({});
+    setInventoryTemplate(DEFAULT_INVENTORY);
+    initialized.current = false;
+  }, []);
+
   return (
     <BookingsContext.Provider value={{
       bookings, inspections, inventory, inventoryTemplate,
+      clearLocalData,
       getBooking, getInspection,
       addTemplateItem, updateTemplateItem, removeTemplateItem,
       toggleChecklistItem, skipChecklistItem, updateItemPhoto, removeItemPhoto, updateItemNotes, completeInspection,
