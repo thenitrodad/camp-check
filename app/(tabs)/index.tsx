@@ -55,18 +55,16 @@ export default function DashboardScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [authVisible, setAuthVisible] = useState(false);
   const [authMode, setAuthMode] = useState<'signup' | 'signin'>('signup');
-  const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authConfirm, setAuthConfirm] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
-  const [sessionEmail, setSessionEmail] = useState('');
   const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
     getSession().then(session => {
       if (session?.user) {
-        setSessionEmail(session.user.email ?? '');
+        // already signed in
       } else {
         setAuthVisible(true);
       }
@@ -75,10 +73,9 @@ export default function DashboardScreen() {
 
   const handleAuth = async () => {
     setAuthError('');
-    const email = authEmail.trim().toLowerCase();
     const password = authPassword;
-    if (!email.includes('@') || password.length < 6) {
-      setAuthError('Enter a valid email and a password of at least 6 characters.');
+    if (password.length < 6) {
+      setAuthError('Password must be at least 6 characters.');
       return;
     }
     if (authMode === 'signup' && password !== authConfirm) {
@@ -87,13 +84,12 @@ export default function DashboardScreen() {
     }
     setAuthLoading(true);
     const result = authMode === 'signup'
-      ? await signUp(email, password)
-      : await signIn(email, password);
+      ? await signUp(password)
+      : await signIn(password);
     setAuthLoading(false);
     if (result.error) {
       setAuthError(result.error);
     } else {
-      setSessionEmail(email);
       setAuthVisible(false);
       setAuthPassword('');
       setAuthConfirm('');
@@ -299,6 +295,11 @@ export default function DashboardScreen() {
         <View style={[styles.setupScreen, { backgroundColor: colors.primary }]}>
           <Ionicons name="shield-checkmark-outline" size={56} color="#fff" style={{ marginBottom: 8 }} />
           <Text style={styles.setupTitle}>CampCheck</Text>
+          <Text style={styles.setupSub}>
+            {authMode === 'signup'
+              ? 'Set a password to protect your data.'
+              : 'Enter your password to continue.'}
+          </Text>
 
           {/* Mode toggle */}
           <View style={styles.authToggle}>
@@ -309,22 +310,12 @@ export default function DashboardScreen() {
                 style={[styles.authToggleBtn, authMode === m && styles.authToggleBtnActive]}
               >
                 <Text style={[styles.authToggleText, authMode === m && styles.authToggleTextActive]}>
-                  {m === 'signup' ? 'Create Account' : 'Sign In'}
+                  {m === 'signup' ? 'First Time Setup' : 'Sign In'}
                 </Text>
               </Pressable>
             ))}
           </View>
 
-          <TextInput
-            style={[styles.setupInput, { backgroundColor: '#fff', color: colors.primary }]}
-            value={authEmail}
-            onChangeText={setAuthEmail}
-            placeholder="Email"
-            placeholderTextColor="#9ca3af"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
           <TextInput
             style={[styles.setupInput, { backgroundColor: '#fff', color: colors.primary }]}
             value={authPassword}
@@ -354,13 +345,13 @@ export default function DashboardScreen() {
             style={[styles.setupBtn, { backgroundColor: authLoading ? 'rgba(255,255,255,0.3)' : '#fff' }]}
           >
             <Text style={[styles.setupBtnText, { color: colors.primary }]}>
-              {authLoading ? 'Please wait…' : authMode === 'signup' ? 'Create Account' : 'Sign In'}
+              {authLoading ? 'Please wait…' : authMode === 'signup' ? 'Set Password' : 'Sign In'}
             </Text>
           </Pressable>
 
           {authMode === 'signup' && (
             <Text style={styles.authHint}>
-              New phone later? Just sign in with the same email and password — your data comes back automatically.
+              On a new phone, switch to Sign In and enter your password — your data comes back automatically.
             </Text>
           )}
         </View>
@@ -384,10 +375,10 @@ export default function DashboardScreen() {
               </View>
               <View style={[styles.emailDisplay, { backgroundColor: colors.muted, borderColor: colors.border }]}>
                 <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                <Text style={[styles.emailText, { color: colors.foreground }]}>{sessionEmail}</Text>
+                <Text style={[styles.emailText, { color: colors.foreground }]}>Password protected</Text>
               </View>
               <Text style={[styles.settingsCardSub, { color: colors.mutedForeground }]}>
-                On a new phone, install CampCheck and sign in with this email and password to restore all your data.
+                On a new phone, install CampCheck, tap Sign In, and enter your password — your data comes back automatically.
               </Text>
               <Pressable onPress={handleSignOut} style={[styles.signOutBtn, { borderColor: colors.destructive }]}>
                 <Ionicons name="log-out-outline" size={18} color={colors.destructive} />

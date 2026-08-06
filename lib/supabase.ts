@@ -30,30 +30,37 @@ export interface SyncPayload {
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
+// Single-owner app: we use a fixed internal email so Supabase never sends
+// any confirmation or rate-limit email. The user only ever sets/enters a password.
+const OWNER_EMAIL = 'owner@campcheck.local';
 
 export async function getSession() {
   const { data } = await supabase.auth.getSession();
   return data.session;
 }
 
-/** Create a new account. Migrates any existing data from old email-based rows. */
+/** Create the owner account (first launch). No email confirmation involved. */
 export async function signUp(
-  email: string,
   password: string,
 ): Promise<{ error: string | null }> {
-  const { data, error } = await supabase.auth.signUp({ email, password });
-  if (error) return { error: error.message };
-  // Migrate old data to the new UID row on first sign-up
-  if (data.user) await _migrateToUid(data.user.id, email.toLowerCase());
+  const { data, error } = await supabase.auth.signUp({ email: OWNER_EMAIL, password });
+  if (error) {
+    // If the account already exists, fall through to sign-in
+    if (error.message.toLowerCase().includes('already registered') ||
+        error.message.toLowerCase().includes('already exists')) {
+      return signIn(password);
+    }
+    return { error: error.message };
+  }
+  if (data.user) await _migrateToUid(data.user.id, 'main');
   return { error: null };
 }
 
-/** Sign in with email + password. */
+/** Sign in with the owner password. */
 export async function signIn(
-  email: string,
   password: string,
 ): Promise<{ error: string | null }> {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await supabase.auth.signInWithPassword({ email: OWNER_EMAIL, password });
   if (error) return { error: error.message };
   return { error: null };
 }
