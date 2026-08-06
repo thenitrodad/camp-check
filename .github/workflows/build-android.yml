@@ -28,6 +28,7 @@ jobs:
           eas build \
             --platform android \
             --profile production \
-            --non-interactive
+            --non-interactive \
+            --no-wait
           echo "Build submitted to EAS. Download the AAB from:"
           echo "https://expo.dev/accounts/campcheck/projects/camp-check/builds"
