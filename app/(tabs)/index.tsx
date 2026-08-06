@@ -42,7 +42,7 @@ const FILTER_LABELS: Record<Filter, string> = {
   all: 'All',
   active: 'Active Rentals',
   pending: 'Pending Inspection',
-  past: 'Completed Bookings',
+  past: 'Past',
 };
 
 export default function DashboardScreen() {
@@ -245,43 +245,49 @@ export default function DashboardScreen() {
             <Text style={[styles.activeFilterChipText, { color: colors.primary }]}>
               {FILTER_LABELS[filter]}
             </Text>
-            <Pressable onPress={() => setFilter('all')} hitSlop={8}>
+            <Pressable onPress={() => setFilter('today')} hitSlop={8}>
               <Ionicons name="close-circle" size={16} color={colors.primary} />
             </Pressable>
           </View>
         </View>
       ) : (
         <View style={[styles.filterRow, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-          {(['today', 'upcoming', 'all', 'past'] as Filter[]).map(f => (
-            <Pressable
-              key={f}
-              onPress={() => setFilter(f)}
-              style={[styles.filterTab, filter === f && { borderBottomColor: colors.accent }]}
-            >
-              <Text style={[
-                styles.filterText,
-                { color: filter === f ? colors.accent : colors.mutedForeground },
-                filter === f && { fontFamily: 'Inter_600SemiBold' },
-              ]}>
-                {FILTER_LABELS[f]}
-              </Text>
-              {f === 'today' && todayBookings.length > 0 && (
-                <View style={[styles.badge, { backgroundColor: colors.accent }]}>
-                  <Text style={styles.badgeText}>{todayBookings.length}</Text>
-                </View>
-              )}
-              {f === 'upcoming' && upcomingBookings.length > 0 && (
-                <View style={[styles.badge, { backgroundColor: colors.border }]}>
-                  <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>{upcomingBookings.length}</Text>
-                </View>
-              )}
-              {f === 'past' && pastBookings.length > 0 && (
-                <View style={[styles.badge, { backgroundColor: colors.border }]}>
-                  <Text style={[styles.badgeText, { color: colors.mutedForeground }]}>{pastBookings.length}</Text>
-                </View>
-              )}
-            </Pressable>
-          ))}
+          <View style={[styles.segmentWrap, { backgroundColor: colors.background }]}>
+            {(['today', 'upcoming', 'past'] as Filter[]).map(f => {
+              const isActive = filter === f;
+              const count = f === 'today' ? todayBookings.length
+                          : f === 'upcoming' ? upcomingBookings.length
+                          : pastBookings.length;
+              return (
+                <Pressable
+                  key={f}
+                  onPress={() => { Haptics.selectionAsync(); setFilter(f); }}
+                  style={[
+                    styles.segmentBtn,
+                    isActive && { backgroundColor: colors.card, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+                  ]}
+                >
+                  <Text style={[
+                    styles.segmentText,
+                    { color: isActive ? colors.foreground : colors.mutedForeground },
+                    isActive && { fontFamily: 'Inter_600SemiBold' },
+                  ]}>
+                    {FILTER_LABELS[f]}
+                  </Text>
+                  {count > 0 && (
+                    <View style={[
+                      styles.segmentBadge,
+                      { backgroundColor: isActive ? colors.accent : colors.border },
+                    ]}>
+                      <Text style={[styles.segmentBadgeText, { color: isActive ? '#fff' : colors.mutedForeground }]}>
+                        {count}
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
       )}
 
@@ -447,18 +453,20 @@ const styles = StyleSheet.create({
   statLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 10, fontFamily: 'Inter_400Regular', textAlign: 'center' },
   activeIndicator: { width: 20, height: 3, borderRadius: 2, backgroundColor: '#fff', marginTop: 2 },
   filterRow: {
-    flexDirection: 'row', borderBottomWidth: 1,
+    borderBottomWidth: 1,
     paddingHorizontal: 16, paddingVertical: 10,
     alignItems: 'center',
   },
-  filterTab: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 8, gap: 6, borderBottomWidth: 2, borderBottomColor: 'transparent',
-    marginHorizontal: -16, paddingHorizontal: 16,
+  segmentWrap: {
+    flexDirection: 'row', borderRadius: 12, padding: 3, width: '100%',
   },
-  filterText: { fontSize: 14, fontFamily: 'Inter_500Medium' },
-  badge: { minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
-  badgeText: { color: '#fff', fontSize: 10, fontFamily: 'Inter_700Bold' },
+  segmentBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 7, gap: 5, borderRadius: 10,
+  },
+  segmentText: { fontSize: 13, fontFamily: 'Inter_500Medium' },
+  segmentBadge: { minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
+  segmentBadgeText: { fontSize: 10, fontFamily: 'Inter_700Bold' },
   activeFilterChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
