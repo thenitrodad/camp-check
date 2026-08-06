@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   FlatList,
   Modal,
   Platform,
@@ -9,7 +8,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,7 +20,7 @@ import { useBookings } from '@/context/BookingsContext';
 import BookingCard from '@/components/BookingCard';
 import EmptyState from '@/components/EmptyState';
 import ImportBookingModal from '@/components/ImportBookingModal';
-import { getSession, signUp, signIn, signOut } from '@/lib/supabase';
+import { ensureSession } from '@/lib/supabase';
 import type { Booking } from '@/types';
 
 function todayISO() {
@@ -48,69 +46,14 @@ const FILTER_LABELS: Record<Filter, string> = {
 export default function DashboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { bookings, clearLocalData } = useBookings();
+  const { bookings } = useBookings();
   const [filter, setFilter] = useState<Filter>('today');
   const [refreshing, setRefreshing] = useState(false);
   const [importVisible, setImportVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [authVisible, setAuthVisible] = useState(false);
-  const [authMode, setAuthMode] = useState<'signup' | 'signin'>('signup');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authConfirm, setAuthConfirm] = useState('');
-  const [authError, setAuthError] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
   const listRef = useRef<FlatList>(null);
 
-  useEffect(() => {
-    getSession().then(session => {
-      if (session?.user) {
-        // already signed in
-      } else {
-        setAuthVisible(true);
-      }
-    });
-  }, []);
-
-  const handleAuth = async () => {
-    setAuthError('');
-    const password = authPassword;
-    if (password.length < 6) {
-      setAuthError('Password must be at least 6 characters.');
-      return;
-    }
-    if (authMode === 'signup' && password !== authConfirm) {
-      setAuthError('Passwords do not match.');
-      return;
-    }
-    setAuthLoading(true);
-    const result = authMode === 'signup'
-      ? await signUp(password)
-      : await signIn(password);
-    setAuthLoading(false);
-    if (result.error) {
-      setAuthError(result.error);
-    } else {
-      setAuthVisible(false);
-      setAuthPassword('');
-      setAuthConfirm('');
-    }
-  };
-
-  const handleSignOut = () => {
-    Alert.alert('Sign Out', 'You will need to sign back in to access your data.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out', style: 'destructive', onPress: async () => {
-          await clearLocalData();
-          await signOut();
-          setSessionEmail('');
-          setSettingsVisible(false);
-          setAuthMode('signin');
-          setAuthVisible(true);
-        },
-      },
-    ]);
-  };
+  useEffect(() => { ensureSession(); }, []);
 
   const today = todayISO();
   const todayBookings = bookings.filter(b => b.checkIn === today);
@@ -290,73 +233,6 @@ export default function DashboardScreen() {
 
       <ImportBookingModal visible={importVisible} onClose={() => setImportVisible(false)} />
 
-      {/* Auth Screen — shown until signed in */}
-      <Modal visible={authVisible} transparent={false} animationType="fade">
-        <View style={[styles.setupScreen, { backgroundColor: colors.primary }]}>
-          <Ionicons name="shield-checkmark-outline" size={56} color="#fff" style={{ marginBottom: 8 }} />
-          <Text style={styles.setupTitle}>CampCheck</Text>
-          <Text style={styles.setupSub}>
-            {authMode === 'signup'
-              ? 'Set a password to protect your data.'
-              : 'Enter your password to continue.'}
-          </Text>
-
-          {/* Mode toggle */}
-          <View style={styles.authToggle}>
-            {(['signup', 'signin'] as const).map(m => (
-              <Pressable
-                key={m}
-                onPress={() => { setAuthMode(m); setAuthError(''); }}
-                style={[styles.authToggleBtn, authMode === m && styles.authToggleBtnActive]}
-              >
-                <Text style={[styles.authToggleText, authMode === m && styles.authToggleTextActive]}>
-                  {m === 'signup' ? 'First Time Setup' : 'Sign In'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <TextInput
-            style={[styles.setupInput, { backgroundColor: '#fff', color: colors.primary }]}
-            value={authPassword}
-            onChangeText={setAuthPassword}
-            placeholder="Password (6+ characters)"
-            placeholderTextColor="#9ca3af"
-            secureTextEntry
-          />
-          {authMode === 'signup' && (
-            <TextInput
-              style={[styles.setupInput, { backgroundColor: '#fff', color: colors.primary }]}
-              value={authConfirm}
-              onChangeText={setAuthConfirm}
-              placeholder="Confirm Password"
-              placeholderTextColor="#9ca3af"
-              secureTextEntry
-            />
-          )}
-
-          {authError ? (
-            <Text style={styles.authError}>{authError}</Text>
-          ) : null}
-
-          <Pressable
-            onPress={handleAuth}
-            disabled={authLoading}
-            style={[styles.setupBtn, { backgroundColor: authLoading ? 'rgba(255,255,255,0.3)' : '#fff' }]}
-          >
-            <Text style={[styles.setupBtnText, { color: colors.primary }]}>
-              {authLoading ? 'Please wait…' : authMode === 'signup' ? 'Set Password' : 'Sign In'}
-            </Text>
-          </Pressable>
-
-          {authMode === 'signup' && (
-            <Text style={styles.authHint}>
-              On a new phone, switch to Sign In and enter your password — your data comes back automatically.
-            </Text>
-          )}
-        </View>
-      </Modal>
-
       {/* Settings Sheet */}
       <Modal visible={settingsVisible} transparent animationType="slide" onRequestClose={() => setSettingsVisible(false)}>
         <View style={[styles.settingsSheet, { backgroundColor: colors.background }]}>
@@ -370,20 +246,13 @@ export default function DashboardScreen() {
           <ScrollView contentContainerStyle={styles.settingsBody} showsVerticalScrollIndicator={false}>
             <View style={[styles.settingsCard, { backgroundColor: colors.card }]}>
               <View style={styles.settingsCardHeader}>
-                <Ionicons name="person-circle-outline" size={20} color={colors.primary} />
-                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Account</Text>
+                <Ionicons name="cloud-outline" size={20} color={colors.primary} />
+                <Text style={[styles.settingsCardTitle, { color: colors.foreground }]}>Cloud Sync</Text>
               </View>
               <View style={[styles.emailDisplay, { backgroundColor: colors.muted, borderColor: colors.border }]}>
                 <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                <Text style={[styles.emailText, { color: colors.foreground }]}>Password protected</Text>
+                <Text style={[styles.emailText, { color: colors.foreground }]}>Data backed up automatically</Text>
               </View>
-              <Text style={[styles.settingsCardSub, { color: colors.mutedForeground }]}>
-                On a new phone, install CampCheck, tap Sign In, and enter your password — your data comes back automatically.
-              </Text>
-              <Pressable onPress={handleSignOut} style={[styles.signOutBtn, { borderColor: colors.destructive }]}>
-                <Ionicons name="log-out-outline" size={18} color={colors.destructive} />
-                <Text style={[styles.signOutText, { color: colors.destructive }]}>Sign Out</Text>
-              </Pressable>
             </View>
           </ScrollView>
         </View>
@@ -466,29 +335,6 @@ const styles = StyleSheet.create({
   activeFilterChipText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   list: { paddingTop: 16, paddingBottom: 120, flexGrow: 1 },
   sectionHeader: { fontSize: 12, fontFamily: 'Inter_500Medium', letterSpacing: 0.6, textTransform: 'uppercase', paddingHorizontal: 20, marginBottom: 8 },
-  // Auth screen
-  setupScreen: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 32, gap: 12,
-  },
-  setupTitle: { color: '#fff', fontSize: 28, fontFamily: 'Inter_700Bold', textAlign: 'center', letterSpacing: -0.5 },
-  setupSub: { color: 'rgba(255,255,255,0.75)', fontSize: 15, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 22, marginBottom: 8 },
-  authToggle: {
-    flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 20, padding: 3, width: '100%', marginBottom: 4,
-  },
-  authToggleBtn: { flex: 1, paddingVertical: 8, borderRadius: 18, alignItems: 'center' },
-  authToggleBtnActive: { backgroundColor: '#fff' },
-  authToggleText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: 'rgba(255,255,255,0.7)' },
-  authToggleTextActive: { color: '#1E3A5F', fontFamily: 'Inter_600SemiBold' },
-  setupInput: {
-    width: '100%', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
-    fontSize: 16, fontFamily: 'Inter_400Regular',
-  },
-  setupBtn: { width: '100%', paddingVertical: 16, borderRadius: 14, alignItems: 'center', marginTop: 4 },
-  setupBtnText: { fontSize: 16, fontFamily: 'Inter_700Bold' },
-  authError: { color: '#fca5a5', fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center' },
-  authHint: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 18 },
   // Settings sheet
   settingsSheet: { flex: 1, marginTop: 60, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' },
   settingsHeader: {
@@ -510,9 +356,4 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11,
     fontSize: 15, fontFamily: 'Inter_400Regular', textAlign: 'center',
   },
-  signOutBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 13, borderRadius: 12, borderWidth: 1.5,
-  },
-  signOutText: { fontSize: 15, fontFamily: 'Inter_600SemiBold' },
 });

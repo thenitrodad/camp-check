@@ -6,10 +6,6 @@ import type { Booking, Inspection, InventoryItem } from '@/types';
 const SUPABASE_URL = 'https://jtgfugikzitbxxjjfdfn.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable__ynRWcMXVbNcN0pjiHnrbA_4qz1jO5-';
 
-// Persist the Supabase session in AsyncStorage so the owner stays logged in
-// across app restarts and doesn't have to sign in every time.
-// Realtime is disabled — CampCheck doesn't use live subscriptions, and the
-// WebSocket connection can crash React Native during cold-start.
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: AsyncStorage as any,
@@ -29,78 +25,33 @@ export interface SyncPayload {
   updatedAt: string;
 }
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
-// Single-owner app: we use a fixed internal email so Supabase never sends
-// any confirmation or rate-limit email. The user only ever sets/enters a password.
-const OWNER_EMAIL = 'owner@campcheck.local';
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+// Single-owner app — sign in anonymously on first launch, persist forever.
+// No login screen, no email, no password. The session lives in AsyncStorage.
 
 export async function getSession() {
   const { data } = await supabase.auth.getSession();
   return data.session;
 }
 
-/** Create the owner account (first launch). No email confirmation involved. */
-export async function signUp(
-  password: string,
-): Promise<{ error: string | null }> {
-  const { data, error } = await supabase.auth.signUp({ email: OWNER_EMAIL, password });
-  if (error) {
-    // If the account already exists, fall through to sign-in
-    if (error.message.toLowerCase().includes('already registered') ||
-        error.message.toLowerCase().includes('already exists')) {
-      return signIn(password);
-    }
-    return { error: error.message };
-  }
-  if (data.user) await _migrateToUid(data.user.id, 'main');
-  return { error: null };
+/** Call once on app start. Signs in anonymously if no session exists. */
+export async function ensureSession(): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  if (data.session) return;
+  await supabase.auth.signInAnonymously();
 }
 
-/** Sign in with the owner password. */
-export async function signIn(
-  password: string,
-): Promise<{ error: string | null }> {
-  const { error } = await supabase.auth.signInWithPassword({ email: OWNER_EMAIL, password });
-  if (error) return { error: error.message };
-  return { error: null };
-}
-
-export async function signOut(): Promise<void> {
-  await supabase.auth.signOut();
-}
+// ─── Sync ─────────────────────────────────────────────────────────────────────
 
 async function _getUid(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
   return data.session?.user.id ?? null;
 }
 
-/** On first sign-up, copy old email/main row into the new UID row so data isn't lost. */
-async function _migrateToUid(uid: string, email: string): Promise<void> {
-  for (const legacyId of [email, 'main']) {
-    try {
-      const { data } = await supabase
-        .from('campcheck_sync')
-        .select('data')
-        .eq('id', legacyId)
-        .single();
-      if (data?.data) {
-        await supabase.from('campcheck_sync').upsert({
-          id: uid,
-          data: data.data,
-          updated_at: new Date().toISOString(),
-        });
-        return;
-      }
-    } catch { /* ignore */ }
-  }
-}
-
-// ─── Sync ────────────────────────────────────────────────────────────────────
-
 export async function pushToCloud(payload: SyncPayload): Promise<void> {
   try {
     const uid = await _getUid();
-    if (!uid) return; // not signed in yet
+    if (!uid) return;
     const { error } = await supabase
       .from('campcheck_sync')
       .upsert({ id: uid, data: payload, updated_at: payload.updatedAt });
