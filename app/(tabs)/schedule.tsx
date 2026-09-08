@@ -56,7 +56,7 @@ type ViewMode = 'week' | 'month';
 export default function ScheduleScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { bookings } = useBookings();
+  const { bookings, getCamperName, getBookingConflicts } = useBookings();
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -284,6 +284,18 @@ export default function ScheduleScreen() {
                 <InspectionPill status={item.inspectionStatus} />
               </View>
               <View style={styles.bookingMeta}>
+                <Ionicons name="car-outline" size={13} color={colors.mutedForeground} />
+                <Text style={[styles.bookingMetaText, { color: colors.mutedForeground }]}>
+                  {getCamperName(item.camperId, item.rvName)} · {item.platform ?? 'Other'}
+                </Text>
+              </View>
+              {getBookingConflicts(item).length > 0 && (
+                <View style={styles.warningMeta}>
+                  <Ionicons name="warning" size={13} color="#D97706" />
+                  <Text style={styles.warningMetaText}>Overlap or under 4-hour turnaround</Text>
+                </View>
+              )}
+              <View style={styles.bookingMeta}>
                 <Ionicons name="location-outline" size={13} color={colors.mutedForeground} />
                 <Text style={[styles.bookingMetaText, { color: colors.mutedForeground }]}>
                   {item.campground}{item.lotNumber ? ` · Lot ${item.lotNumber}` : ''}
@@ -374,6 +386,8 @@ const styles = StyleSheet.create({
   bookingName: { fontSize: 16, fontFamily: 'Inter_600SemiBold' },
   bookingMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   bookingMetaText: { fontSize: 13, fontFamily: 'Inter_400Regular' },
+  warningMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  warningMetaText: { color: '#D97706', fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   fab: {
     position: 'absolute', bottom: 100, right: 20,
     width: 56, height: 56, borderRadius: 28,

@@ -5,11 +5,13 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -59,19 +61,27 @@ export default function ImportBookingModal({ visible, onClose }: Props) {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.85,
+      quality: 0.7,
       base64: true,
       allowsEditing: false,
+      exif: false,
     });
 
-    if (result.canceled || !result.assets[0]?.base64) return;
+    if (result.canceled || !result.assets[0]) return;
 
     setLoading(true);
     try {
+      // Resize to max 1200px wide before base64 encoding — prevents JS thread freeze
+      const resized = await ImageManipulator.manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+
       const resp = await fetch(`${getApiUrl()}/api/parse-booking`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: result.assets[0].base64 }),
+        body: JSON.stringify({ imageBase64: resized.base64 }),
       });
 
       if (!resp.ok) {
@@ -102,8 +112,8 @@ export default function ImportBookingModal({ visible, onClose }: Props) {
         prefillName: parsed.guestName,
         prefillCheckIn: isoToDisplay(parsed.checkIn),
         prefillCheckOut: isoToDisplay(parsed.checkOut),
+        prefillPlatform: parsed.platform,
         prefillNotes: [
-          parsed.platform ? `Platform: ${parsed.platform}` : '',
           parsed.amount ? `Amount: $${parsed.amount}` : '',
           parsed.notes,
         ].filter(Boolean).join(' | '),
@@ -120,8 +130,12 @@ export default function ImportBookingModal({ visible, onClose }: Props) {
   return (
     <Modal visible={visible} animationType="slide" transparent presentationStyle="overFullScreen">
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
-
+        <ScrollView
+          style={[styles.sheet, { backgroundColor: colors.card }]}
+          contentContainerStyle={styles.sheetContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
           {/* Handle */}
           <View style={[styles.handle, { backgroundColor: colors.border }]} />
 
@@ -190,7 +204,7 @@ export default function ImportBookingModal({ visible, onClose }: Props) {
           <Pressable onPress={handleClose} style={[styles.cancelBtn, { borderColor: colors.border }]}>
             <Text style={[styles.cancelText, { color: colors.mutedForeground }]}>Cancel</Text>
           </Pressable>
-        </View>
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -203,6 +217,9 @@ const styles = StyleSheet.create({
   },
   sheet: {
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    maxHeight: '90%',
+  },
+  sheetContent: {
     paddingHorizontal: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     paddingTop: 12, gap: 16,
   },

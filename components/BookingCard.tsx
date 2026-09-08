@@ -9,6 +9,7 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { InspectionPill, PropanePill, WaterPill } from '@/components/StatusPill';
 import type { Booking } from '@/types';
+import { useBookings } from '@/context/BookingsContext';
 
 interface Props {
   booking: Booking;
@@ -16,6 +17,8 @@ interface Props {
 
 export default function BookingCard({ booking }: Props) {
   const colors = useColors();
+  const { getCamperName, getBookingConflicts } = useBookings();
+  const conflicts = getBookingConflicts(booking);
 
   const handleOpenBooking = useCallback(() => {
     Haptics.selectionAsync();
@@ -84,6 +87,21 @@ export default function BookingCard({ booking }: Props) {
 
         {/* Body */}
         <View style={styles.body}>
+          <View style={styles.resourceRow}>
+            <View style={[styles.resourcePill, { backgroundColor: colors.primary + '14' }]}>
+              <Ionicons name="car-outline" size={13} color={colors.primary} />
+              <Text style={[styles.resourceText, { color: colors.primary }]}>{getCamperName(booking.camperId, booking.rvName)}</Text>
+            </View>
+            <View style={[styles.resourcePill, { backgroundColor: colors.muted }]}>
+              <Text style={[styles.resourceText, { color: colors.foreground }]}>{booking.platform ?? 'Other'}</Text>
+            </View>
+          </View>
+          {conflicts.length > 0 && (
+            <View style={styles.conflictRow}>
+              <Ionicons name="warning" size={15} color="#D97706" />
+              <Text style={styles.conflictText}>Overlap or under 4-hour turnaround</Text>
+            </View>
+          )}
           {/* Guest count */}
           <View style={styles.guestCountRow}>
             <Ionicons name="people-outline" size={15} color={colors.mutedForeground} />
@@ -222,6 +240,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  resourceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  resourcePill: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 12, paddingHorizontal: 9, paddingVertical: 5 },
+  resourceText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
+  conflictRow: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FEF3C7', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  conflictText: { color: '#92400E', fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   guestCountText: {
     fontSize: 14,
     fontFamily: 'Inter_500Medium',

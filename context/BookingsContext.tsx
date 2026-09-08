@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Booking, BookingPhoto, Inspection, InspectionSection, InventoryItem, ItemStatus } from '@/types';
-import { pushToCloud, pullFromCloud, getSession } from '@/lib/supabase';
+import type { Booking, BookingPhoto, Camper, Inspection, InspectionSection, InventoryItem, ItemStatus } from '@/types';
+import { pushToCloud, pullFromCloud, getSession, ensureSession } from '@/lib/supabase';
 
 const LOCAL_KEYS = [
   'campcheck_bookings',
@@ -9,7 +9,10 @@ const LOCAL_KEYS = [
   'campcheck_inventory',
   'campcheck_inventory_template',
   'campcheck_uid',
+  'campcheck_campers',
 ] as const;
+
+const MIN_TURNAROUND_MS = 4 * 60 * 60 * 1000;
 
 async function wipeLocalData() {
   await AsyncStorage.multiRemove([...LOCAL_KEYS]);
@@ -22,60 +25,23 @@ function isoFromNow(offsetDays: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function makeSampleBookings(): Booking[] {
-  return [
-    {
-      id: '1', guestName: 'Jen Kline',
-      campground: 'TBD — Delivery', lotNumber: '',
-      checkIn: isoFromNow(0), checkInTime: '3:00 PM',
-      checkOut: isoFromNow(3), checkOutTime: '11:00 AM',
-      adults: 2, children: 2,
-      freshWaterStatus: 'full', propaneStatus: 'full',
-      inspectionStatus: 'not_started',
-      notes: 'Delivery booking · $500.25. Starts soon — confirm delivery address.',
-      rvName: 'Luxury Family Bunkhouse Camper', phone: '', email: '', deliveryAddress: '',
-    },
-    {
-      id: '2', guestName: 'Brad Levine',
-      campground: 'TBD — Delivery', lotNumber: '',
-      checkIn: isoFromNow(4), checkInTime: '3:00 PM',
-      checkOut: isoFromNow(7), checkOutTime: '11:00 AM',
-      adults: 2, children: 0,
-      freshWaterStatus: 'full', propaneStatus: 'full',
-      inspectionStatus: 'not_started',
-      notes: 'Delivery booking · $484.35.',
-      rvName: 'Luxury Family Bunkhouse Camper', phone: '', email: '', deliveryAddress: '',
-    },
-    {
-      id: '3', guestName: 'Christina Siegel',
-      campground: 'TBD — Delivery', lotNumber: '',
-      checkIn: isoFromNow(8), checkInTime: '3:00 PM',
-      checkOut: isoFromNow(12), checkOutTime: '11:00 AM',
-      adults: 2, children: 0,
-      freshWaterStatus: 'full', propaneStatus: 'full',
-      inspectionStatus: 'not_started',
-      notes: 'Delivery booking · $585.30.',
-      rvName: 'Luxury Family Bunkhouse Camper', phone: '', email: '', deliveryAddress: '',
-    },
-    {
-      id: '4', guestName: 'Hosn Mhdi',
-      campground: 'TBD — Delivery', lotNumber: '',
-      checkIn: isoFromNow(26), checkInTime: '3:00 PM',
-      checkOut: isoFromNow(29), checkOutTime: '11:00 AM',
-      adults: 2, children: 0,
-      freshWaterStatus: 'full', propaneStatus: 'full',
-      inspectionStatus: 'not_started',
-      notes: 'Delivery booking · $499.35.',
-      rvName: 'Luxury Family Bunkhouse Camper', phone: '', email: '', deliveryAddress: '',
-    },
-  ];
-}
-
 // ─── Stale check ──────────────────────────────────────────────────────────────
 function isStale(saved: Booking[]): boolean {
   if (!saved || saved.length === 0) return true;
   const today = isoFromNow(0);
   return saved.every(b => b.checkOut < today);
+}
+
+function bookingDateTime(date: string, time: string | undefined, fallbackHour: number): number {
+  const match = time?.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  let hour = fallbackHour;
+  let minute = 0;
+  if (match) {
+    hour = Number(match[1]) % 12;
+    minute = Number(match[2]);
+    if (match[3].toUpperCase() === 'PM') hour += 12;
+  }
+  return new Date(`${date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`).getTime();
 }
 
 // ─── Inspection template ──────────────────────────────────────────────────────
@@ -154,11 +120,15 @@ function makeInspection(bookingId: string): Inspection {
 // ─── Context types ────────────────────────────────────────────────────────────
 interface BookingsContextValue {
   bookings: Booking[];
+  campers: Camper[];
   inspections: Record<string, Inspection>;
   inventory: Record<string, InventoryItem[]>;
   inventoryTemplate: InventoryItem[];
   clearLocalData: () => Promise<void>;
   getBooking: (id: string) => Booking | undefined;
+  addCamper: (name: string) => string;
+  getCamperName: (camperId?: string, fallback?: string) => string;
+  getBookingConflicts: (booking: Pick<Booking, 'id' | 'camperId' | 'checkIn' | 'checkInTime' | 'checkOut' | 'checkOutTime'>) => Booking[];
   getInspection: (bookingId: string) => Inspection;
   addTemplateItem: (name: string, quantity: number) => void;
   updateTemplateItem: (id: string, name: string, quantity: number) => void;
@@ -186,19 +156,20 @@ interface BookingsContextValue {
 const BookingsContext = createContext<BookingsContextValue | null>(null);
 
 export function BookingsProvider({ children }: { children: React.ReactNode }) {
-  const [bookings, setBookings] = useState<Booking[]>(() => makeSampleBookings());
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [campers, setCampers] = useState<Camper[]>([]);
   const [inspections, setInspections] = useState<Record<string, Inspection>>({});
   const [inventory, setInventory] = useState<Record<string, InventoryItem[]>>({});
   const [inventoryTemplate, setInventoryTemplate] = useState<InventoryItem[]>(DEFAULT_INVENTORY);
-  const syncTimer = useRef<ReturnType<typeof setTimeout>>();
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const initialized = useRef(false);
 
   // ── Load local then merge from cloud ────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      // 0. Check if the signed-in user matches what's cached locally.
-      //    If not (different account or fresh sign-in), wipe local data first
-      //    so no user ever sees another user's bookings.
+      // 0. Ensure anonymous session exists before doing anything else,
+      //    so currentUid is always available on first launch.
+      await ensureSession();
       const session = await getSession();
       const currentUid = session?.user.id ?? null;
       const storedUid = await AsyncStorage.getItem('campcheck_uid');
@@ -211,16 +182,18 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
       }
 
       // 1. Load from AsyncStorage first (instant)
-      const [rawB, rawI, rawInv, rawTpl] = await Promise.all([
+      const [rawB, rawI, rawInv, rawTpl, rawCampers] = await Promise.all([
         AsyncStorage.getItem('campcheck_bookings'),
         AsyncStorage.getItem('campcheck_inspections'),
         AsyncStorage.getItem('campcheck_inventory'),
         AsyncStorage.getItem('campcheck_inventory_template'),
+        AsyncStorage.getItem('campcheck_campers'),
       ]);
       if (rawTpl) setInventoryTemplate(JSON.parse(rawTpl));
       let localBookings: Booking[] | null = null;
       let localInspections: Record<string, Inspection> = {};
       let localInventory: Record<string, InventoryItem[]> = {};
+      const localCampers: Camper[] = rawCampers ? JSON.parse(rawCampers) : [];
 
       if (rawB) {
         const saved: Booking[] = JSON.parse(rawB);
@@ -238,23 +211,26 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
         setBookings(remote.bookings);
         setInspections(remote.inspections ?? {});
         setInventory(remote.inventory ?? {});
+        setCampers(remote.campers?.length ? remote.campers : localCampers);
         await Promise.all([
           AsyncStorage.setItem('campcheck_bookings', JSON.stringify(remote.bookings)),
           AsyncStorage.setItem('campcheck_inspections', JSON.stringify(remote.inspections ?? {})),
           AsyncStorage.setItem('campcheck_inventory', JSON.stringify(remote.inventory ?? {})),
+          AsyncStorage.setItem('campcheck_campers', JSON.stringify(remote.campers?.length ? remote.campers : localCampers)),
         ]);
       } else if (localBookings) {
         // No cloud data yet — use local
         setBookings(localBookings);
         setInspections(localInspections);
         setInventory(localInventory);
-      } else if (currentUid) {
-        // Authenticated but no data anywhere — start fresh (no sample bookings)
+        setCampers(localCampers);
+      } else {
+        // No data anywhere — start fresh
         setBookings([]);
         setInspections({});
         setInventory({});
+        setCampers([]);
       }
-      // else: no auth yet, keep sample data so the screen isn't empty
 
       initialized.current = true;
     })();
@@ -267,13 +243,14 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     syncTimer.current = setTimeout(() => {
       pushToCloud({
         bookings,
+        campers,
         inspections,
         inventory,
         updatedAt: new Date().toISOString(),
       });
     }, 1500);
     return () => clearTimeout(syncTimer.current);
-  }, [bookings, inspections, inventory]);
+  }, [bookings, campers, inspections, inventory]);
 
   const saveBookings = useCallback((next: Booking[]) => {
     setBookings(next);
@@ -293,6 +270,34 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const getBooking = useCallback((id: string) => bookings.find(b => b.id === id), [bookings]);
+  const addCamper = useCallback((name: string) => {
+    const cleanName = name.trim();
+    const existing = campers.find(c => c.name.toLowerCase() === cleanName.toLowerCase());
+    if (existing) return existing.id;
+    const id = `camper-${Date.now()}`;
+    const next = [...campers, { id, name: cleanName }];
+    setCampers(next);
+    AsyncStorage.setItem('campcheck_campers', JSON.stringify(next));
+    return id;
+  }, [campers]);
+  const getCamperName = useCallback((camperId?: string, fallback?: string) =>
+    campers.find(c => c.id === camperId)?.name ?? fallback ?? 'Camper', [campers]);
+  const getBookingConflicts = useCallback(
+    (candidate: Pick<Booking, 'id' | 'camperId' | 'checkIn' | 'checkInTime' | 'checkOut' | 'checkOutTime'>) => {
+      const candidateStart = bookingDateTime(candidate.checkIn, candidate.checkInTime, 15);
+      const candidateEnd = bookingDateTime(candidate.checkOut, candidate.checkOutTime, 11);
+      return bookings.filter(b => {
+        if (b.id === candidate.id || (b.camperId ?? 'legacy') !== (candidate.camperId ?? 'legacy')) return false;
+        const existingStart = bookingDateTime(b.checkIn, b.checkInTime, 15);
+        const existingEnd = bookingDateTime(b.checkOut, b.checkOutTime, 11);
+        return (
+          existingStart < candidateEnd + MIN_TURNAROUND_MS &&
+          candidateStart < existingEnd + MIN_TURNAROUND_MS
+        );
+      });
+    },
+    [bookings],
+  );
   const getInspection = useCallback((id: string) => inspections[id] ?? makeInspection(id), [inspections]);
 
   const toggleChecklistItem = useCallback((bId: string, sId: string, iId: string) => {
@@ -405,14 +410,15 @@ export function BookingsProvider({ children }: { children: React.ReactNode }) {
     setInspections({});
     setInventory({});
     setInventoryTemplate(DEFAULT_INVENTORY);
+    setCampers([]);
     initialized.current = false;
   }, []);
 
   return (
     <BookingsContext.Provider value={{
-      bookings, inspections, inventory, inventoryTemplate,
+      bookings, campers, inspections, inventory, inventoryTemplate,
       clearLocalData,
-      getBooking, getInspection,
+      getBooking, getInspection, addCamper, getCamperName, getBookingConflicts,
       addTemplateItem, updateTemplateItem, removeTemplateItem,
       toggleChecklistItem, skipChecklistItem, updateItemPhoto, removeItemPhoto, updateItemNotes, completeInspection,
       getInventory, updateInventoryStatus, updateInventoryItem, addInventoryItem, deleteInventoryItem,

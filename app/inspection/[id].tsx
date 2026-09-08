@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useBookings } from '@/context/BookingsContext';
 import InspectionCheckItem from '@/components/InspectionCheckItem';
@@ -47,7 +47,7 @@ export default function InspectionScreen() {
             onPress: () => {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               completeInspection(id);
-              Alert.alert('Inspection Complete', 'Report has been generated and saved.');
+              router.back();
             },
           },
         ]
@@ -55,12 +55,13 @@ export default function InspectionScreen() {
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       completeInspection(id);
-      Alert.alert('Inspection Complete', 'All items verified. Report has been saved.');
+      router.back();
     }
   };
 
   const totalItems = inspection.sections.reduce((acc, s) => acc + s.items.filter(i => !i.skipped).length, 0);
   const checkedItems = inspection.sections.reduce((acc, s) => acc + s.items.filter(i => i.checked && !i.skipped).length, 0);
+  const displayProgress = inspection.status === 'completed' ? 1 : progress;
 
   const sectionData = inspection.sections.map(section => ({
     ...section,
@@ -81,8 +82,8 @@ export default function InspectionScreen() {
             </Text>
           )}
         </View>
-        <Text style={[styles.progressPct, { color: colors.accent }]}>
-          {Math.round(progress * 100)}%
+        <Text style={[styles.progressPct, { color: displayProgress === 1 ? colors.success : colors.accent }]}>
+          {Math.round(displayProgress * 100)}%
         </Text>
       </View>
 
@@ -90,8 +91,8 @@ export default function InspectionScreen() {
         <View style={[
           styles.progressFill,
           {
-            backgroundColor: progress === 1 ? colors.success : colors.accent,
-            width: `${Math.round(progress * 100)}%` as `${number}%`,
+            backgroundColor: displayProgress === 1 ? colors.success : colors.accent,
+            width: `${Math.round(displayProgress * 100)}%` as `${number}%`,
           },
         ]} />
       </View>

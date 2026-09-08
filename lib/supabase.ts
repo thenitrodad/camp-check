@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Booking, Inspection, InventoryItem } from '@/types';
+import type { Booking, Camper, Inspection, InventoryItem } from '@/types';
 
 const SUPABASE_URL = 'https://jtgfugikzitbxxjjfdfn.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable__ynRWcMXVbNcN0pjiHnrbA_4qz1jO5-';
@@ -20,6 +20,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 export interface SyncPayload {
   bookings: Booking[];
+  campers?: Camper[];
   inspections: Record<string, Inspection>;
   inventory: Record<string, InventoryItem[]>;
   updatedAt: string;

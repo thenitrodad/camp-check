@@ -3,6 +3,12 @@ export type ItemStatus = 'present' | 'missing' | 'damaged';
 export type TankStatus = 'empty' | 'low' | 'half' | 'full';
 export type PropaneStatus = 'empty' | 'low' | 'half' | 'full';
 export type PhotoType = 'before' | 'after';
+export type BookingPlatform = 'Outdoorsy' | 'RVshare' | 'RVezy' | 'Other';
+
+export interface Camper {
+  id: string;
+  name: string;
+}
 
 export interface BookingPhoto {
   id: string;
@@ -62,6 +68,8 @@ export interface Booking {
   inspectionStatus: InspectionStatus;
   notes: string;
   rvName: string;
+  camperId?: string;
+  platform?: BookingPlatform;
   phone?: string;
   email?: string;
   deliveryAddress?: string;

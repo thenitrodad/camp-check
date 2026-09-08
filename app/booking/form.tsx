@@ -12,6 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useColors } from '@/hooks/useColors';
 import { useBookings } from '@/context/BookingsContext';
 import { parseBookingImage } from '@/lib/parseBookingImage';
+import type { BookingPlatform } from '@/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const TIME_OPTIONS = [
@@ -19,6 +20,15 @@ const TIME_OPTIONS = [
   '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM',
   '5:00 PM', '6:00 PM', '7:00 PM', '8:00 PM',
 ];
+const PLATFORM_OPTIONS: BookingPlatform[] = ['Outdoorsy', 'RVshare', 'RVezy', 'Other'];
+
+function normalizePlatform(value?: string): BookingPlatform {
+  const normalized = value?.toLowerCase() ?? '';
+  if (normalized.includes('outdoorsy')) return 'Outdoorsy';
+  if (normalized.includes('rvshare')) return 'RVshare';
+  if (normalized.includes('rvezy')) return 'RVezy';
+  return 'Other';
+}
 
 // YYYY-MM-DD → MM/DD/YYYY
 function isoToDisplay(iso: string) {
@@ -77,10 +87,10 @@ const stepStyles = StyleSheet.create({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function BookingFormScreen() {
-  const { id, prefillName, prefillCheckIn, prefillCheckOut, prefillNotes } =
-    useLocalSearchParams<{ id?: string; prefillName?: string; prefillCheckIn?: string; prefillCheckOut?: string; prefillNotes?: string }>();
+  const { id, prefillName, prefillCheckIn, prefillCheckOut, prefillPlatform, prefillNotes } =
+    useLocalSearchParams<{ id?: string; prefillName?: string; prefillCheckIn?: string; prefillCheckOut?: string; prefillPlatform?: string; prefillNotes?: string }>();
   const colors = useColors();
-  const { getBooking, addBooking, updateBooking } = useBookings();
+  const { campers, getBooking, addBooking, updateBooking, addCamper, getBookingConflicts } = useBookings();
 
   const existing = id ? getBooking(id) : undefined;
   const isEdit = !!existing;
@@ -101,6 +111,10 @@ export default function BookingFormScreen() {
   const [lotNumber, setLotNumber] = useState(existing?.lotNumber ?? '');
   const [notes, setNotes] = useState(existing?.notes ?? prefillNotes ?? '');
   const [rvName, setRvName] = useState(existing?.rvName ?? 'Luxury Family Bunkhouse Camper');
+  const initialCamperId = existing?.camperId ?? campers[0]?.id ?? '';
+  const [camperId, setCamperId] = useState(initialCamperId);
+  const [newCamperName, setNewCamperName] = useState('');
+  const [platform, setPlatform] = useState<BookingPlatform>(existing?.platform ?? normalizePlatform(prefillPlatform));
 
   const [timePicker, setTimePicker] = useState<'in' | 'out' | null>(null);
   const [importing, setImporting] = useState(false);
@@ -149,12 +163,10 @@ export default function BookingFormScreen() {
       if (parsed.guestName) { setGuestName(parsed.guestName); filled++; }
       if (parsed.checkIn) { setCheckInDisplay(isoToDisplay(parsed.checkIn)); filled++; }
       if (parsed.checkOut) { setCheckOutDisplay(isoToDisplay(parsed.checkOut)); filled++; }
+      if (parsed.platform) { setPlatform(normalizePlatform(parsed.platform)); filled++; }
 
       // Build notes from platform + amount + any extra notes
       const noteParts: string[] = [];
-      if (parsed.platform && parsed.platform !== 'Unknown') {
-        noteParts.push(`Platform: ${parsed.platform}`);
-      }
       if (parsed.amount && parsed.amount > 0) {
         noteParts.push(`Amount: $${parsed.amount.toFixed(2)}`);
       }
@@ -211,6 +223,14 @@ export default function BookingFormScreen() {
       return;
     }
 
+    let selectedCamperId = camperId;
+    if (!selectedCamperId && newCamperName.trim()) {
+      selectedCamperId = addCamper(newCamperName);
+    }
+    if (!selectedCamperId) {
+      Alert.alert('Camper Required', 'Select a camper or add a new one.');
+      return;
+    }
     const data = {
       guestName: guestName.trim(),
       phone: phone.trim(),
@@ -226,22 +246,43 @@ export default function BookingFormScreen() {
       deliveryAddress: isDelivery ? deliveryAddress.trim() : '',
       notes: notes.trim(),
       rvName: rvName.trim() || 'Luxury Family Bunkhouse Camper',
+      camperId: selectedCamperId,
+      platform,
       freshWaterStatus: existing?.freshWaterStatus ?? 'full',
       propaneStatus: existing?.propaneStatus ?? 'full',
     } as const;
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    if (isEdit && id) {
-      updateBooking(id, data);
-      router.back();
+    const conflicts = getBookingConflicts({
+      id: id ?? '',
+      camperId: selectedCamperId,
+      checkIn,
+      checkInTime,
+      checkOut,
+      checkOutTime,
+    });
+    const save = () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (isEdit && id) {
+        updateBooking(id, data);
+        router.back();
+      } else {
+        const newId = addBooking(data);
+        router.replace(`/booking/${newId}`);
+      }
+    };
+    if (conflicts.length) {
+      Alert.alert(
+        'Booking Turnaround Warning',
+        `This booking overlaps or leaves less than four hours between ${conflicts.length} existing booking${conflicts.length === 1 ? '' : 's'} for this camper. Save anyway?`,
+        [{ text: 'Cancel', style: 'cancel' }, { text: 'Save Anyway', style: 'destructive', onPress: save }],
+      );
     } else {
-      const newId = addBooking(data);
-      router.replace(`/booking/${newId}`);
+      save();
     }
   }, [guestName, phone, email, checkInDisplay, checkInTime, checkOutDisplay, checkOutTime,
       adults, children, isDelivery, deliveryAddress, campground, lotNumber, notes, rvName,
-      isEdit, id, addBooking, updateBooking, existing]);
+      camperId, newCamperName, platform, isEdit, id, addBooking, updateBooking, addCamper,
+      getBookingConflicts, existing]);
 
   const inputStyle = [fStyles.input, { color: colors.foreground }];
 
@@ -286,6 +327,41 @@ export default function BookingFormScreen() {
             )}
           </Pressable>
         )}
+
+        <SectionHeader title="Camper & Booking Platform" colors={colors} />
+        <View style={[styles.card, { backgroundColor: colors.card, padding: 16, gap: 14 }]}>
+          <Text style={[styles.pickerLabel, { color: colors.mutedForeground }]}>CAMPER</Text>
+          <View style={styles.chipRow}>
+            {campers.map(camper => (
+              <Pressable
+                key={camper.id}
+                onPress={() => setCamperId(camper.id)}
+                style={[styles.chip, { borderColor: colors.border }, camperId === camper.id && { backgroundColor: colors.primary, borderColor: colors.primary }]}
+              >
+                <Text style={[styles.chipText, { color: camperId === camper.id ? '#fff' : colors.foreground }]}>{camper.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <TextInput
+            style={[fStyles.newCamperInput, { color: colors.foreground, borderColor: colors.border }]}
+            value={newCamperName}
+            onChangeText={text => { setNewCamperName(text); if (text) setCamperId(''); }}
+            placeholder="+ Add camper name"
+            placeholderTextColor={colors.mutedForeground}
+          />
+          <Text style={[styles.pickerLabel, { color: colors.mutedForeground }]}>BOOKING PLATFORM</Text>
+          <View style={styles.chipRow}>
+            {PLATFORM_OPTIONS.map(option => (
+              <Pressable
+                key={option}
+                onPress={() => setPlatform(option)}
+                style={[styles.chip, { borderColor: colors.border }, platform === option && { backgroundColor: colors.primary, borderColor: colors.primary }]}
+              >
+                <Text style={[styles.chipText, { color: platform === option ? '#fff' : colors.foreground }]}>{option}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
 
         {/* ── Guest Info ── */}
         <SectionHeader title="Guest Info" colors={colors} />
@@ -488,6 +564,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 6,
   },
   card: { marginHorizontal: 16, borderRadius: 16, overflow: 'hidden' },
+  pickerLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.7 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 13, paddingVertical: 8 },
+  chipText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   bigSaveBtn: {
     marginHorizontal: 16, marginTop: 28, borderRadius: 16, paddingVertical: 16,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -521,5 +601,9 @@ const fStyles = StyleSheet.create({
   notes: {
     fontSize: 15, fontFamily: 'Inter_400Regular',
     padding: 16, minHeight: 100,
+  },
+  newCamperInput: {
+    width: '100%', borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, fontFamily: 'Inter_400Regular',
   },
 });

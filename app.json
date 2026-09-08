@@ -2,7 +2,7 @@
   "expo": {
     "name": "CampCheck",
     "slug": "camp-check",
-    "version": "1.3.6",
+    "version": "1.3.8",
     "orientation": "portrait",
     "icon": "./assets/images/icon-new.png",
     "scheme": "camp-check",
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.campcheck.app",
-      "versionCode": 25,
+      "versionCode": 27,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon-new.png",
         "backgroundColor": "#FFFFFF"
@@ -38,9 +38,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "cc2719bb-3d56-4f99-8379-6b028732d443"
+        "projectId": "41319485-1d38-4136-adb9-4487940509da"
       }
     },
-    "owner": "campcheck"
+    "owner": "thenitrodads-team"
   }
 }
